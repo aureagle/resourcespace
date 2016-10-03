@@ -159,10 +159,10 @@ jQuery(document).ready(function () {
 
 
 <?php
+$types=get_resource_types();
+
 if (!$basic_simple_search)
 	{
-	# Load resource types.
-	$types=get_resource_types();
 	
 	# More than 5 types? Always display the 'select all' option.
 	if (count($types)>5) {$searchbar_selectall=true;}
@@ -232,7 +232,25 @@ if (!$basic_simple_search)
 	   
 
 	}
-
+elseif($restypes=='')
+	{
+	# we still need a way to pass restypes based on simple search settings or things link search crumbs will be incorrect
+	if($search_includes_resources)
+		{
+		for($t=0;$t<count($types);$t++)
+			{
+			$restypes.=($restypes=='' ? '' : ',').$types[$t]['ref'];
+			}
+		}
+	if($search_includes_user_collections){$restypes.=($restypes=='' ? '' : ','). "mycol";}
+	if($search_includes_public_collections){$restypes.=($restypes=='' ? '' : ','). "pubcol";}
+	if($search_includes_themes){$restypes.=($restypes=='' ? '' : ','). "themes";}
+	
+	?>
+	<input type="hidden" name="restypes" id="restypes" value="<?php echo $restypes?>" />
+	<?php
+	}
+	
     if($searchbar_selectall)
         {
         ?>
@@ -282,7 +300,7 @@ if (!$basic_simple_search)
 	if (!$searchbar_buttons_at_bottom){ echo $searchbuttons."<br/>"; }
 	if (!$basic_simple_search) {
 	// Include simple search items (if any)
-	global $clear_function;
+	global $clear_function, $simple_search_show_dynamic_as_dropdown, $chosen_dropdowns;
 	
 	$optionfields=array();
 	$rendered_names=array();
@@ -512,10 +530,7 @@ if (!$basic_simple_search)
 	                }
 	          ?>
 	
-	        </select> 
-	
-	        <?php if ($searchbyday) { ?>
-	        <select id="basicday" name="day" class="SearchWidth">
+	        </select><?php if ($searchbyday) { ?><select id="basicday" name="day" class="SearchWidth">
 	          <option selected="selected" value=""><?php echo $lang["anyday"]?></option>
 	          <?php
 	          for ($n=1;$n<=31;$n++)
@@ -569,7 +584,18 @@ if (!$basic_simple_search)
 			});
 		});
 
-	function ResetTicks() {<?php echo $clear_function?>}
+	function ResetTicks()
+		{
+		<?php
+		echo $clear_function;
+		if($chosen_dropdowns)
+			{
+			?>
+			jQuery('#SearchBox select').trigger('chosen:updated');
+			<?php
+			}
+		?>
+		}
 	</script>
 	
 	<!--				
@@ -598,12 +624,12 @@ if (!$basic_simple_search)
   </form>
   <br />
   <?php hook("searchbarbeforebottomlinks"); ?>
-  <?php if (! $disable_geocoding) { ?><p><i class="fa fa-fw fa-globe"></i>&nbsp;<a onClick="return CentralSpaceLoad(this,true);" href="<?php echo $baseurl?>/pages/geo_search.php"><?php echo $lang["geographicsearch"]?></a></p><?php } ?>
-  <?php if (! $advancedsearch_disabled && !hook("advancedsearchlink")) { ?><p><i class="fa fa-fw fa-search-plus"></i>&nbsp;<a onClick="return CentralSpaceLoad(this,true);" href="<?php echo $baseurl?>/pages/search_advanced.php"><?php echo $lang["gotoadvancedsearch"]?></a></p><?php } ?>
+  <?php if (! $disable_geocoding) { ?><p><i aria-hidden="true" class="fa fa-fw fa-globe"></i>&nbsp;<a onClick="return CentralSpaceLoad(this,true);" href="<?php echo $baseurl?>/pages/geo_search.php"><?php echo $lang["geographicsearch"]?></a></p><?php } ?>
+  <?php if (! $advancedsearch_disabled && !hook("advancedsearchlink")) { ?><p><i aria-hidden="true" class="fa fa-fw fa-search-plus"></i>&nbsp;<a onClick="return CentralSpaceLoad(this,true);" href="<?php echo $baseurl?>/pages/search_advanced.php"><?php echo $lang["gotoadvancedsearch"]?></a></p><?php } ?>
 
   <?php hook("searchbarafterbuttons"); ?>
 
-  <?php if ($view_new_material) { ?><p><a onClick="return CentralSpaceLoad(this,true);" href="<?php echo $baseurl?>/pages/search.php?search=<?php echo urlencode("!last".$recent_search_quantity)?>">&gt; <?php echo $lang["viewnewmaterial"]?></a></p><?php } ?>
+  <?php if ($view_new_material) { ?><p><i aria-hidden="true" class="fa fa-fw  fa-clock-o"></i>&nbsp;<a onClick="return CentralSpaceLoad(this,true);" href="<?php echo $baseurl?>/pages/search.php?search=<?php echo urlencode("!last".$recent_search_quantity)?>"><?php echo $lang["viewnewmaterial"]?></a></p><?php } ?>
 	
 	<?php } ?> <!-- END of Searchbarreplace hook -->
 	</div>

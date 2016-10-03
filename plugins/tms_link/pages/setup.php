@@ -76,6 +76,16 @@ $page_def[] = config_add_section_header($lang['tms_link_metadata_setup']);
 $page_def[] = config_add_single_ftype_select('tms_link_checksum_field',$lang["tms_link_checksum_field"]);
 $page_def[] = config_add_single_ftype_select('tms_link_object_id_field',$lang["tms_link_object_id_field"]);
 
+$page_def[] = config_add_section_header($lang['tms_link_bidirectional_options']);
+$page_def[] = config_add_boolean_select('tms_link_push_image', $lang['tms_link_push_image']);
+$page_def[] = config_add_text_input('tms_link_push_condition',$lang['tms_link_push_condition']);
+$page_def[] = config_add_text_input('tms_link_tms_loginid',$lang['tms_link_tms_loginid']);
+$page_def[] = config_add_text_list_input('tms_link_push_image_sizes',$lang['tms_link_push_image_sizes']);
+$page_def[] = config_add_text_input('tms_link_mediatypeid',$lang['tms_link_mediatypeid']);
+$page_def[] = config_add_text_input('tms_link_formatid',$lang['tms_link_formatid']);
+$page_def[] = config_add_text_input('tms_link_colordepthid',$lang['tms_link_colordepthid']);
+$page_def[] = config_add_text_input('tms_link_media_path',$lang['tms_link_media_path']);
+
 //$page_def[] = config_add_hidden($tms_link_field_mappings);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -147,7 +157,7 @@ $tmsmaphtml.="</select>
 
 $page_def[] = config_add_html($tmsmaphtml);
 
-$page_def[] = config_add_section_header($lang['tms_link_colum_type_required']);
+$page_def[] = config_add_section_header($lang['tms_link_column_type_required']);
 
 $page_def[] = config_add_text_list_input('tms_link_text_columns', $lang["tms_link_text_columns"]);
 $page_def[] = config_add_text_list_input('tms_link_numeric_columns', $lang["tms_link_numeric_columns"]);

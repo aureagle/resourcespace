@@ -19,6 +19,20 @@ $page_def[] = config_add_file_input(
     300
 );
 
+$page_def[] = config_add_single_select(
+    'header_size',
+    $lang['userpreference_headersize'],
+    array(
+        'HeaderSmall' => $lang['headersmall'],
+        'HeaderMid'      => $lang['headermid'],
+        'HeaderLarge'    => $lang['headerlarge']
+    ),
+    true,
+    300,
+    '',
+    true,"jQuery('#Header').removeClass('HeaderSmall');jQuery('#Header').removeClass('HeaderMid');jQuery('#Header').removeClass('HeaderLarge');jQuery('#Header').addClass(this.value);"
+);
+
 $page_def[] = config_add_colouroverride_input(
     'header_colour_style_override',
     $lang["setup-headercolourstyleoverride"],
@@ -26,6 +40,15 @@ $page_def[] = config_add_colouroverride_input(
     null,
     true,
     "jQuery('#Header').css('background',value);"
+);
+
+$page_def[] = config_add_colouroverride_input(
+    'header_link_style_override',
+    $lang["setup-headerlinkstyleoverride"],
+    '',
+    null,
+    true,
+    "jQuery('#HeaderNav1 a').css('color',value);jQuery('#HeaderNav2 a').css('color',value);jQuery('#HeaderNav2 li').css('border-color', value);"
 );
 
 $page_def[] = config_add_text_input('email_from', $lang['setup-emailfrom'], false, 300, false, '', true);
@@ -114,14 +137,9 @@ $page_def[] = config_add_html('</div>');
 // Metadata section
 $page_def[] = config_add_html('<h3 class="CollapsibleSectionHead collapsed">' . $lang['metadata'] . '</h3><div id="SystemConfigMetadataSection" class="CollapsibleSection">');
 $page_def[] = config_add_boolean_select('metadata_report', $lang['metadata-report'], $enable_disable_options, 300, '', true);
-$page_def[] = config_add_boolean_select(
-    'metadata_read_default',
-    $lang['embedded_metadata'],
-    array($lang['embedded_metadata_donot_extract_option'], $lang['embedded_metadata_extract_option']),
-    300,
-    '',
-    true
-);
+$page_def[] = config_add_boolean_select('metadata_read_default', $lang['embedded_metadata'], array($lang['embedded_metadata_donot_extract_option'], $lang['embedded_metadata_extract_option']), 300, '', true);
+$page_def[] = config_add_boolean_select('speedtagging', $lang['speedtagging'], $enable_disable_options, 300, '', true);
+
 $page_def[] = config_add_html('</div>');
 
 

@@ -142,11 +142,24 @@ function get_collection_resources($collection)
 	return sql_array("select resource value from collection_resource where collection='$collection' order by sortorder asc, date_added desc, resource desc"); 
 	}
 	
-function add_resource_to_collection($resource,$collection,$smartadd=false,$size="")
+function add_resource_to_collection($resource,$collection,$smartadd=false,$size="",$addtype="")
 	{
-	global $collection_allow_not_approved_share;
-	if (collection_writeable($collection)||$smartadd)
-		{	
+	global $collection_allow_not_approved_share, $collection_block_restypes;	
+	$addpermitted=collection_writeable($collection) || $smartadd;
+	if ($addpermitted && !$smartadd && (count($collection_block_restypes)>0)) // Can't always block adding resource types since this may be a single resource managed request
+		{
+		if($addtype=="")
+			{
+			$addtype=sql_value("select resource_type value from resource where ref='" . $resource . "'",0);
+			}
+		if(in_array($addtype,$collection_block_restypes))
+			{
+			$addpermitted=false;
+			}
+		}
+		
+	if ($addpermitted)	
+		{
 		# Check if this collection has already been shared externally. If it has, we must fail if not permitted or add a further entry
 		# for this specific resource, and warn the user that this has happened.
 		$keys=get_collection_external_access($collection);
@@ -343,6 +356,9 @@ function delete_collection($ref)
 	# Deletes the collection with reference $ref
 	global $home_dash;
 	
+	# Permissions check
+	if (!collection_writeable($ref)) {return false;}
+	
 	hook("beforedeletecollection","",array($ref));
 	sql_query("delete from collection where ref='$ref'");
 	sql_query("delete from collection_resource where collection='$ref'");
@@ -490,9 +506,14 @@ function search_public_collections($search="", $order_by="name", $sort="ASC", $e
 }
 
 
-function do_collections_search($search,$restypes,$archive=0,$order_by,$sort)
+function do_collections_search($search,$restypes,$archive=0,$order_by='',$sort="DESC")
     {
-    global $search_includes_themes, $search_includes_public_collections, $search_includes_user_collections, $userref, $collection_search_includes_resource_metadata;
+    global $search_includes_themes, $search_includes_public_collections, $search_includes_user_collections, $userref, $collection_search_includes_resource_metadata, $default_collection_sort;
+    
+    if($order_by=='')
+    	{
+    	$order_by=$default_collection_sort;
+    	}
     $result=array();
     
     # Recognise a quoted search, which is a search for an exact string
@@ -795,12 +816,12 @@ function get_theme_headers($themes=array())
 		$theme_path .= $themes[$x];		
 		if (isset($themes[$x])){
 			$selecting="theme".($x+2);
-		}		
+		}	
 		if (isset($themes[$x]) && $themes[$x]!="" && $x==0) {
-			$sql.=" and theme='" . escape_check($themes[$x]) . "'";
+			$sql.=" and theme LIKE '%" . escape_check($themes[$x]) . "%'";
 		}
 		else if (isset($themes[$x])&& $themes[$x]!=""&& $x!=0) {
-			$sql.=" and theme".($x+1)."='" . escape_check($themes[$x]) . "'";
+			$sql.=" and theme".($x+1)." LIKE '%" . escape_check($themes[$x]) . "%'";
 		}
 	}	
 	$return=array();
@@ -1016,6 +1037,12 @@ function email_collection($colrefs,$collectionname,$fromusername,$userlist,$mess
 	if ($feedback) {$feedback=1;} else {$feedback=0;}
 	$reflist=trim_array(explode(",",$colrefs));
 	$emails_keys=resolve_user_emails($ulist);
+
+    if(0 === count($emails_keys))
+        {
+        return $lang['email_error_user_list_not_valid'];
+        }
+
 	$emails=$emails_keys['emails'];
 	$key_required=$emails_keys['key_required'];
 
@@ -1300,6 +1327,7 @@ function get_search_title($searchstring){
 
 function add_saved_search_items($collection)
 	{
+	global $collection_share_warning, $collection_allow_not_approved_share, $userref, $collection_block_restypes;
 	# Adds resources from a search to the collection.
 	$results=do_search(getvalescaped("addsearch",""), getvalescaped("restypes",""), "relevance", getvalescaped("archive","",true),-1,'',false,getvalescaped("starsearch",""),false,false,getvalescaped("daylimit",""));
 
@@ -1307,39 +1335,50 @@ function add_saved_search_items($collection)
 	# for this specific resource, and warn the user that this has happened.
 	$keys=get_collection_external_access($collection);
 	$resourcesnotadded=array(); # record the resources that are not added so we can display to the user
-	if (count($keys)>0)
+	$blockedtypes=array();# Record the resource types that are not added 
+	
+	for ($r=0;$r<count($results);$r++)
 		{
-		# Set the flag so a warning appears.
-		global $collection_share_warning, $collection_allow_not_approved_share;
-		$collection_share_warning=true;
+		$resource=$results[$r]["ref"];
+		$archivestatus=$results[$r]["archive"];
 		
-		for ($n=0;$n<count($keys);$n++)
+		if(in_array($results[$r]["resource_type"],$collection_block_restypes))
 			{
-			# Insert a new access key entry for this resource/collection.
-			global $userref;
-			
-			for ($r=0;$r<count($results);$r++)
+			$blockedtypes[] = $results[$r]["resource_type"];
+			continue;
+			}
+
+		if (count($keys)>0)
+			{			
+			if ($archivestatus<0 && !$collection_allow_not_approved_share)
 				{
-				$resource=$results[$r]["ref"];
-				$archivestatus=$results[$r]["archive"];
-				if ($archivestatus<0 && !$collection_allow_not_approved_share) {$resourcesnotadded[$resource] = $results[$r];continue;}
+				$resourcesnotadded[$resource] = $results[$r];
+				continue;
+				}
+			for ($n=0;$n<count($keys);$n++)
+				{
+				# Insert a new access key entry for this resource/collection.
 				sql_query("insert into external_access_keys(resource,access_key,user,collection,date) values ('$resource','" . escape_check($keys[$n]["access_key"]) . "','$userref','$collection',now())");
 				#log this
-				collection_log($collection,"s",$resource, $keys[$n]["access_key"]);
+				collection_log($collection,"s",$resource, $keys[$n]["access_key"]);	
+				
+				# Set the flag so a warning appears.
+				$collection_share_warning=true;	
 				}
 			}
-		}
-
+		}	
+		
+		
 	if (is_array($results))
-		{
+		{		
 		$modifyNotAdded = hook('modifynotaddedsearchitems', '', array($results, $resourcesnotadded));
 		if (is_array($modifyNotAdded))
 			$resourcesnotadded = $modifyNotAdded;
 
 		for ($n=0;$n<count($results);$n++)
 			{
-            $resource=$results[$n]["ref"];
-			if (!isset($resourcesnotadded[$resource]))
+			$resource=$results[$n]["ref"];
+			if (!isset($resourcesnotadded[$resource]) && !in_array($results[$n]["resource_type"],$collection_block_restypes))
 				{
 				sql_query("delete from collection_resource where resource='$resource' and collection='$collection'");
 				sql_query("insert into collection_resource(resource,collection) values ('$resource','$collection')");
@@ -1347,7 +1386,7 @@ function add_saved_search_items($collection)
 			}
 		}
 
-	if (!empty($resourcesnotadded))
+	if (!empty($resourcesnotadded) || count($blockedtypes)>0)
 		{
 		# Translate to titles only for displaying them to the user
 		global $view_title_field;
@@ -1356,7 +1395,16 @@ function add_saved_search_items($collection)
 			{
 			$titles[] = i18n_get_translated($resource['field' . $view_title_field]);
 			}
+		if(count($blockedtypes)>0)
+			{
+			$blocked_restypes=array_unique($blockedtypes);
+			// Return a list of blocked resouce types
+			$titles["blockedtypes"]=$blocked_restypes;
+			}
 		return $titles;
+		}
+	if(count($blockedtypes)>0)
+		{
 		}
 	return array();
 	}
@@ -1640,7 +1688,7 @@ function send_collection_feedback($collection,$comment)
 function copy_collection($copied,$current,$remove_existing=false)
 	{	
 	# Get all data from the collection to copy.
-	$copied_collection=sql_query("select * from collection_resource where collection='$copied'","");
+	$copied_collection=sql_query("select cr.resource, r.resource_type from collection_resource cr join resource r on cr.resource=r.ref where collection='$copied'","");
 	
 	if ($remove_existing)
 		{
@@ -1653,8 +1701,10 @@ function copy_collection($copied,$current,$remove_existing=false)
 	foreach($copied_collection as $col_resource)
 		{
 		# Use correct function so external sharing is honoured.
-		add_resource_to_collection($col_resource['resource'],$current,true);
+		add_resource_to_collection($col_resource['resource'],$current,true,"",$col_resource['resource_type']);
 		}
+	
+	hook('aftercopycollection','',array($copied,$current));
 	}
 
 if (!function_exists("collection_is_research_request")){
@@ -1773,23 +1823,33 @@ function collection_max_access($collection)
 	return $maxaccess;
 	}
 
-function collection_min_access($collection)	
-	{
-	# Returns the minimum access (the least permissive) that the current user has to the resources in $collection.
-	$minaccess=0;
-	if (is_array($collection)){$result=$collection;}
-	else {
-		$result=do_search("!collection" . $collection,"","relevance",0,-1,"desc",false,"",false,"");
-	}
-	for ($n=0;$n<count($result);$n++)
-		{
-		$ref=$result[$n]["ref"];
-		# Load access level
-		$access=get_resource_access($result[$n]);
-		if ($access>$minaccess) {$minaccess=$access;}
-		}
-	return $minaccess;
-	}
+function collection_min_access($collection)
+    {
+    # Returns the minimum access (the least permissive) that the current user has to the resources in $collection.
+    $minaccess = 0;
+    if(is_array($collection))
+        {
+        $result = $collection;
+        }
+    else
+        {
+        $result = do_search("!collection{$collection}", '', 'relevance', 0, -1, 'desc', false, '', false, '');
+        }
+
+    for($n = 0; $n < count($result); $n++)
+        {
+        $ref = $result[$n]['ref'];
+
+        # Load access level
+        $access = get_resource_access($result[$n]);
+        if($access > $minaccess)
+            {
+            $minaccess = $access;
+            }
+        }
+
+    return $minaccess;
+    }
 	
 function collection_set_public($collection)
 	{
@@ -1848,20 +1908,16 @@ function collection_set_themes($collection,$themearr)
 	
 function remove_all_resources_from_collection($ref){
 	// abstracts it out of save_collection()
-		# Remove all resources?
-	if (getval("removeall","")!="")
+	$removed_resources = sql_array('SELECT resource AS value FROM collection_resource WHERE collection = ' . $ref . ';');
+
+	// First log this for each resource (in case it was done by mistake)
+	foreach($removed_resources as $removed_resource_id)
 		{
-		$removed_resources = sql_array('SELECT resource AS value FROM collection_resource WHERE collection = ' . $ref . ';');
-
-		// First log this for each resource (in case it was done by mistake)
-		foreach($removed_resources as $removed_resource_id)
-			{
-			collection_log($ref, 'r', $removed_resource_id, ' - Removed all resources from collection ID ' . $ref);
-			}
-
-		sql_query('DELETE FROM collection_resource WHERE collection = ' . $ref);
-		collection_log($ref, 'R', 0);
+		collection_log($ref, 'r', $removed_resource_id, ' - Removed all resources from collection ID ' . $ref);
 		}
+
+	sql_query('DELETE FROM collection_resource WHERE collection = ' . $ref);
+	collection_log($ref, 'R', 0);
 	}	
 
 if (!function_exists("get_home_page_promoted_collections")){
@@ -1964,13 +2020,20 @@ function update_collection_user($collection,$newuser)
 if(!function_exists("compile_collection_actions")){	
 function compile_collection_actions(array $collection_data, $top_actions, $resource_data=array())
     {
-    global $baseurl_short, $lang, $k, $userrequestmode, $zipcommand, $collection_download, $contact_sheet,
+    global $baseurl_short, $lang, $k, $userrequestmode, $zipcommand, $collection_download, $use_zip_extension, $archiver_path, 		 $collection_download_settings, $contact_sheet,
            $manage_collections_contact_sheet_link, $manage_collections_share_link, $allow_share,
            $manage_collections_remove_link, $userref, $collection_purge, $show_edit_all_link, $result,
            $edit_all_checkperms, $preview_all, $order_by, $sort, $archive, $contact_sheet_link_on_collection_bar,
            $show_searchitemsdiskusage, $emptycollection, $remove_resources_link_on_collection_bar, $count_result,
-           $download_usage, $home_dash, $top_nav_upload_type, $pagename, $offset, $col_order_by, $find, $default_sort, $default_collection_sort, $starsearch, $restricted_share, $hidden_collections, $internal_share_access, $search, $usercollection, $geo_locate_collection;
-           
+           $download_usage, $home_dash, $top_nav_upload_type, $pagename, $offset, $col_order_by, $find, $default_sort, $default_collection_sort, $starsearch, $restricted_share, $hidden_collections, $internal_share_access, $search, $usercollection, $disable_geocoding, $geo_locate_collection;
+    
+	#This is to properly render the actions drop down in the themes page	
+	if (isset($collection_data['c']))
+		{
+		$count_result = $collection_data['c'];
+		}
+	
+	
 	if(isset($search) && substr($search, 0, 11) == '!collection' && ($k == '' || $internal_share_access))
 		{ 
 		# Extract the collection number - this bit of code might be useful as a function
@@ -2105,7 +2168,7 @@ function compile_collection_actions(array $collection_data, $top_actions, $resou
         }
 
     // Request all
-    if($count_result > 0)
+    if($count_result > 0 && ($k == '' || $internal_share_access))
         {
         # Ability to request a whole collection (only if user has restricted access to any of these resources)
         $min_access = collection_min_access($result);
@@ -2122,8 +2185,8 @@ function compile_collection_actions(array $collection_data, $top_actions, $resou
             $o++;
             }
         }
-	
-	if($geo_locate_collection)
+
+	if(($geo_locate_collection && !$disable_geocoding) && $count_result > 0)
         {
             $data_attribute['url'] = sprintf('%spages/geolocate_collection.php?ref=%s',
                 $baseurl_short,
@@ -2137,7 +2200,7 @@ function compile_collection_actions(array $collection_data, $top_actions, $resou
         }
 	
     // Download option
-    if($download_usage && ((isset($zipcommand) || $collection_download) && $count_result > 0))
+    if( $download_usage && ( isset($zipcommand) || $use_zip_extension || ( isset($archiver_path) && isset($collection_download_settings) ) ) && $collection_download && $count_result > 0)
         {
         $data_attribute['url'] = $baseurl_short . "pages/terms.php?k=" . urlencode($k) . "&url=pages/download_usage.php?collection=" . urlencode($collection_data['ref']) ."%26k=" . urlencode($k);
         $options[$o]['value']='download_collection';
@@ -2145,9 +2208,9 @@ function compile_collection_actions(array $collection_data, $top_actions, $resou
 		$options[$o]['data_attr']=$data_attribute;
 		$o++;
         }
-    else if((isset($zipcommand) || $collection_download) && $count_result > 0)
+    else if( (isset($zipcommand) || $use_zip_extension || ( isset($archiver_path) && isset($collection_download_settings) ) ) && $collection_download && $count_result > 0)
         {
-        $data_attribute['url'] = $baseurl_short . "pages/terms.php?k=" . urlencode($k) . "&url=pages/collection_download.php?collection=" . urlencode($collection_data['ref']) ."%26k=" . urlencode($k);
+		$data_attribute['url'] = $baseurl_short . "pages/terms.php?k=" . urlencode($k) . "&url=pages/collection_download.php?collection=" . urlencode($collection_data['ref']) ."%26k=" . urlencode($k);
         $options[$o]['value']='download_collection';
 		$options[$o]['label']=$lang['action-download'];
 		$options[$o]['data_attr']=$data_attribute;
@@ -2403,3 +2466,30 @@ function compile_collection_actions(array $collection_data, $top_actions, $resou
     return $options;
     }
 }
+
+/**
+* Make a filename unique by appending a dupe-string.
+*
+* @param array $base_values
+* @param string $filename
+* @param string $dupe_string
+* @param string $extension
+* @param int $dupe_increment
+*
+* @return string Unique filename
+*/
+function makeFilenameUnique($base_values, $filename, $dupe_string, $extension, $dupe_increment = null)
+    {
+    // Create filename to check if exist in $base_values
+    $check_filename = $filename . ($dupe_increment ? $dupe_string . $dupe_increment : '') . '.' . $extension;
+
+    if(!in_array($check_filename, $base_values))
+        {
+        // Confirmed filename does not exist yet
+        return $check_filename;
+        }
+
+    // Recursive call this function with incremented value
+    // Doing $dupe_increment = null, ++$dupe_increment results in $dupe_increment = 1
+    return makeFilenameUnique($base_values, $filename, $dupe_string, $extension, ++$dupe_increment);
+    }

@@ -358,7 +358,7 @@ function save_resource_data($ref,$multi,$autosave_field="")
 					$joins=get_resource_table_joins();
 					if (in_array($fields[$n]["ref"],$joins)){
 						if(substr($val,0,1)==","){$val=substr($val,1);}
-						sql_query("update resource set field".$fields[$n]["ref"]."='".escape_check($val)."' where ref='$ref'");
+						sql_query("update resource set field".$fields[$n]["ref"]."='".escape_check(truncate_join_field_value($val))."' where ref='$ref'");
 					}
                                         
                                 # Add any onchange code
@@ -688,13 +688,17 @@ function save_resource_data_multi($collection)
 				if (getval("modeselect_" . $fields[$n]["ref"],"")=="FR")
 					{
                     # Find and replace mode? Perform the find and replace.
-					$val=str_replace
-						(
-						getvalescaped("find_" . $fields[$n]["ref"],""),
-						getvalescaped("replace_" . $fields[$n]["ref"],""),
-						$existing
-						);                    
+					$findstring=getval("find_" . $fields[$n]["ref"],"");
+					$replacestring=getval("replace_" . $fields[$n]["ref"],"");
+					$val=str_replace($findstring,$replacestring,$existing); 
+					if ($fields[$n]["type"] == 8) // Need to replace quotes with html characters
+						{
+						$findstring=str_replace("'", "&#39;",htmlspecialchars($findstring));
+						$replacestring=str_replace("'", "&#39;",htmlspecialchars($replacestring));
+						$val=str_replace($findstring,$replacestring,$val); 
+						}
 					}
+				
 				
 				# Append text/option(s) mode?
 				if (getval("modeselect_" . $fields[$n]["ref"],"")=="AP")
@@ -762,7 +766,7 @@ function save_resource_data_multi($collection)
 					# If this is a 'joined' field we need to add it to the resource column
 					$joins=get_resource_table_joins();
 					if (in_array($fields[$n]["ref"],$joins)){
-						sql_query("update resource set field".$fields[$n]["ref"]."='".escape_check($val)."' where ref='$ref'");
+						sql_query("update resource set field".$fields[$n]["ref"]."='".escape_check(truncate_join_field_value($val))."' where ref='$ref'");
 					}		
 						
 					# Purge existing data and keyword mappings, decrease keyword hitcounts.
@@ -1101,7 +1105,6 @@ function add_keyword_mappings($ref,$string,$resource_type_field,$partial_index=f
 
     add_verbatim_keywords($keywords, $string, $resource_type_field); // add in any verbatim keywords (found using regex).
 
-    db_begin_transaction();
     for($n = 0; $n < count($keywords); $n++)
         {
         unset($kwpos);
@@ -1119,7 +1122,6 @@ function add_keyword_mappings($ref,$string,$resource_type_field,$partial_index=f
 
         add_keyword_to_resource($ref, $kw, $resource_type_field, $kwpos, $optional_column, $optional_value, false);
         }
-    db_end_transaction();
 
     }
 }
@@ -1137,7 +1139,7 @@ function add_keyword_to_resource($ref,$keyword,$resource_type_field,$position,$o
                     add_keyword_to_resource($ref,$kworig,$resource_type_field,$position,$optional_column,$optional_value,true);
                     }
         }
-    global $noadd;
+    global $noadd,$use_mysqli_prepared;
     if (!(in_array($keyword,$noadd)))
             {           
             debug("adding " . $keyword);
@@ -1145,13 +1147,21 @@ function add_keyword_to_resource($ref,$keyword,$resource_type_field,$position,$o
             
             # create mapping, increase hit count.
             if ($optional_column<>'' && $optional_value<>'')	# Check if any optional column value passed and add this
-                    {
-					sql_query("insert into resource_keyword(resource,keyword,position,resource_type_field,$optional_column) values ('$ref','$keyref','$position','$resource_type_field','$optional_value')");
-					}
+                {
+                sql_query("insert into resource_keyword(resource,keyword,position,resource_type_field,$optional_column) values ('$ref','$keyref','$position','$resource_type_field','$optional_value')");
+                }
             else  
+                {
+                if(isset($use_mysqli_prepared) && $use_mysqli_prepared)
                     {
-					sql_query("insert into resource_keyword(resource,keyword,position,resource_type_field) values ('$ref','$keyref','$position','$resource_type_field')");
-					}
+                    sql_query_prepared('INSERT INTO `resource_keyword`(`resource`,`keyword`,`position`,`resource_type_field`) VALUES (?,?,?,?)',
+                        array('iiii',$ref,$keyref,$position,$resource_type_field));
+                    }
+                else
+                    {
+                    sql_query("insert into resource_keyword(resource,keyword,position,resource_type_field) values ('$ref','$keyref','$position','$resource_type_field')");
+                    }
+                }
 
             sql_query("update keyword set hit_count=hit_count+1 where ref='$keyref'");
             
@@ -1181,7 +1191,7 @@ function update_field($resource,$field,$value)
 
 	if (count($fieldinfo)==0) {return false;} else {$fieldinfo=$fieldinfo[0];}
 	    
-    $fieldoptions = get_nodes($field);
+    $fieldoptions = get_nodes($field,null,true);
     $newvalues    = trim_array(explode(',', $value));
     
     # Set up arrays of node ids to add/remove. 
@@ -1247,9 +1257,23 @@ function update_field($resource,$field,$value)
         {
         foreach($fieldoptions as $nodedata)
             {
-            if (in_array($nodedata["name"],$newvalues))
+            // Add to array of nodes, unless it has been added to array already as a parent for a previous node
+            if (in_array($nodedata["name"],$newvalues) && !in_array($nodedata["ref"],$nodes_to_add)) 
                 {
                 $nodes_to_add[] = $nodedata["ref"];
+                // We need to add all parent nodes for category trees
+                if($fieldinfo['type']==7) 
+                    {
+                    $parent_nodes=get_parent_nodes($nodedata["ref"]);
+                    foreach($parent_nodes as $parent_node_ref=>$parent_node_name)
+                        {
+                        $nodes_to_add[]=$parent_node_ref;
+                        if (!in_array($parent_node_name,$newvalues))
+                            {
+                            $value = $parent_node_name . "," . $value;    
+                            }
+                        }
+                    }
                 }
             else
                 {
@@ -1294,8 +1318,6 @@ function update_field($resource,$field,$value)
 		sql_query("insert into resource_data(resource,resource_type_field,value) values ('$resource','$field','$value')");
 		}
 	
-	if ($value=="") {$value="null";} else {$value="'" . $value . "'";}
-
 	# If this is a 'joined' field we need to add it to the resource column
 	$joins=get_resource_table_joins();
 	if(in_array($fieldinfo['ref'],$joins))
@@ -1303,24 +1325,18 @@ function update_field($resource,$field,$value)
 		if ($value!="null")
 			{
 			global $resource_field_column_limit;
-			$truncated_value = substr($value, 0, $resource_field_column_limit);
-
+			$truncated_value = truncate_join_field_value($value);
             // Remove backslashes from the end of the truncated value
             if(substr($truncated_value, -1) === '\\')
                 {
                 $truncated_value = substr($truncated_value, 0, strlen($truncated_value) - 1);
-                }
-
-			if(substr($truncated_value, -1) !== '\'')
-				{
-				$truncated_value .= '\'';
 				}
 			}
 		else
 			{
 			$truncated_value="null";
-			}
-		sql_query("update resource set field".$field."=" . $truncated_value . " where ref='$resource'");
+			}		
+		sql_query("update resource set field".$field."=" . (($value=="")?"NULL":"'" . $truncated_value . "'") ." where ref='$resource'");
 		}			
 	
         # Add any onchange code
@@ -1372,11 +1388,17 @@ function email_resource($resource,$resourcename,$fromusername,$userlist,$message
 
 	$emails=array();
 	$key_required=array();
-	
-	$emails_keys=resolve_user_emails($ulist);
-	$unames=$emails_keys['unames'];
-	$emails=$emails_keys['emails'];
-	$key_required=$emails_keys['key_required'];
+
+    $emails_keys = resolve_user_emails($ulist);
+
+    if(0 === count($emails_keys))
+        {
+        return $lang['email_error_user_list_not_valid'];
+        }
+
+    $unames       = $emails_keys['unames'];
+    $emails       = $emails_keys['emails'];
+    $key_required = $emails_keys['key_required'];
 
 	# Send an e-mail to each resolved user / e-mail address
 	$subject="$applicationname: $resourcename";
@@ -1672,7 +1694,7 @@ function copy_resource($from,$resource_type=-1)
 	
 function resource_log($resource, $type, $field, $notes="", $fromvalue="", $tovalue="", $usage=-1, $purchase_size="", $purchase_price=0)
 	{
-	global $userref,$k,$lang,$resource_log_previous_ref;
+	global $userref,$k,$lang,$resource_log_previous_ref, $internal_share_access;
 
     if(($resource===RESOURCE_LOG_APPEND_PREVIOUS && !isset($resource_log_previous_ref)) || ($resource!==RESOURCE_LOG_APPEND_PREVIOUS && $resource<0))
         {
@@ -1719,7 +1741,7 @@ function resource_log($resource, $type, $field, $notes="", $fromvalue="", $toval
 
     if ($resource===RESOURCE_LOG_APPEND_PREVIOUS)
         {
-        sql_query("UPDATE `resource_log` SET `diff`=concat(`diff`,'\n','" . escape_check($diff) . "') WHERE `ref`=" . $resource_log_previous_ref);
+        sql_query("UPDATE `resource_log` SET `diff`=left(concat(`diff`,'\n','" . escape_check($diff) . "'),60000) WHERE `ref`=" . $resource_log_previous_ref);
         return $resource_log_previous_ref;
         }
     else
@@ -1727,7 +1749,7 @@ function resource_log($resource, $type, $field, $notes="", $fromvalue="", $toval
         sql_query("INSERT INTO `resource_log` (`date`, `user`, `resource`, `type`, `resource_type_field`, `notes`, `diff`, `usageoption`, `purchase_size`, " .
             "`purchase_price`, `access_key`, `previous_value`) VALUES (now()," .
             (($userref != "") ? "'$userref'" : "null") . ",'{$resource}','{$type}'," . (($field=="") ? "null" : "'{$field}'") . ",'" . escape_check($notes) . "','" .
-            escape_check($diff) . "','{$usage}','{$purchase_size}','{$purchase_price}'," . (isset($k) ? "'{$k}'" : "null") . ",'" . escape_check($fromvalue) . "')");
+            escape_check($diff) . "','{$usage}','{$purchase_size}','{$purchase_price}'," . ((isset($k) && !$internal_share_access) ? "'{$k}'" : "null") . ",'" . escape_check($fromvalue) . "')");
         $log_ref=sql_insert_id();
         $resource_log_previous_ref=$log_ref;
         return $log_ref;
@@ -1741,7 +1763,7 @@ function get_resource_log($resource, $fetchrows=-1)
     $extrafields=hook("get_resource_log_extra_fields");
     if (!$extrafields) {$extrafields="";}
     
-    $log = sql_query("select distinct r.ref,r.date,u.username,u.fullname,r.type,f.title,r.notes,r.diff,r.usageoption,r.purchase_price,r.purchase_size,ps.name size, r.access_key,ekeys_u.fullname shared_by" . $extrafields . " from resource_log r left outer join user u on u.ref=r.user left outer join resource_type_field f on f.ref=r.resource_type_field left outer join external_access_keys ekeys on r.access_key=ekeys.access_key left outer join user ekeys_u on ekeys.user=ekeys_u.ref left join preview_size ps on r.purchase_size=ps.id where r.resource='$resource' order by r.date desc",false,$fetchrows);
+    $log = sql_query("select r.ref,r.date,u.username,u.fullname,r.type,f.title,r.notes,r.diff,r.usageoption,r.purchase_price,r.purchase_size,ps.name size, r.access_key,ekeys_u.fullname shared_by" . $extrafields . " from resource_log r left outer join user u on u.ref=r.user left outer join resource_type_field f on f.ref=r.resource_type_field left outer join external_access_keys ekeys on r.access_key=ekeys.access_key and r.resource=ekeys.resource left outer join user ekeys_u on ekeys.user=ekeys_u.ref left join preview_size ps on r.purchase_size=ps.id where r.resource='$resource' group by r.ref order by r.date desc",false,$fetchrows);
     for ($n = 0;$n<count($log);$n++)
         {
         $log[$n]["title"] = lang_or_i18n_get_translated($log[$n]["title"], "fieldtitle-");
@@ -1757,31 +1779,52 @@ function get_resource_type_name($type)
 	}
 	
 function get_resource_custom_access($resource)
-	{
-    # Return a list of usergroups with the custom access level for resource $resource (if set).
-    # The standard usergroup names are translated using $lang. Custom usergroup names are i18n translated.
-	$sql="";
-	if (checkperm("E"))
-		{
-		# Restrict to this group and children groups only.
-		global $usergroup,$usergroupparent;
-		$sql="where g.parent='$usergroup' or g.ref='$usergroup' or g.ref='$usergroupparent'";
-		}
-    $resource_custom_access = sql_query("select g.ref,g.name,g.permissions,c.access from usergroup g left outer join resource_custom_access c on g.ref=c.usergroup and c.resource='$resource' $sql group by g.ref order by (g.permissions like '%v%') desc,g.name");
-    for ($n = 0;$n<count($resource_custom_access);$n++)
+    {
+    /*Return a list of usergroups with the custom access level for resource $resource (if set).
+    The standard usergroup names are translated using $lang. Custom usergroup names are i18n translated.*/
+    $sql = '';
+    if(checkperm('E'))
         {
-        $resource_custom_access[$n]["name"] = lang_or_i18n_get_translated($resource_custom_access[$n]["name"], "usergroup-");
+        // Restrict to this group and children groups only.
+        global $usergroup, $usergroupparent;
+
+        $sql = "WHERE g.parent = '{$usergroup}' OR g.ref = '{$usergroup}' OR g.ref = '{$usergroupparent}'";
         }
+
+    $resource_custom_access = sql_query("
+                   SELECT g.ref,
+                          g.name,
+                          g.permissions,
+                          c.access
+                     FROM usergroup AS g
+          LEFT OUTER JOIN resource_custom_access AS c ON g.ref = c.usergroup AND c.resource = '{$resource}'
+                     $sql
+                 GROUP BY g.ref
+                 ORDER BY (g.permissions LIKE '%v%') DESC, g.name
+     ");
+
+    for($n = 0; $n < count($resource_custom_access); $n++)
+        {
+        $resource_custom_access[$n]['name'] = lang_or_i18n_get_translated($resource_custom_access[$n]['name'], 'usergroup-');
+        }
+
     return $resource_custom_access;
-	}
+    }
 
 function get_resource_custom_access_users_usergroups($resource)
     {
     # Returns only matching custom_access rows, with users and groups expanded
-    return sql_query("select g.name usergroup,u.username user,c.access,c.user_expires expires from resource_custom_access c
-        left outer join usergroup g on g.ref=c.usergroup
-        left outer join user u on u.ref=c.user
-        where c.resource='$resource' order by g.name,u.username");
+    return sql_query("
+                 SELECT g.name usergroup,
+                        u.username user,
+                        c.access,
+                        c.user_expires AS expires
+                   FROM resource_custom_access AS c
+        LEFT OUTER JOIN usergroup AS g ON g.ref = c.usergroup
+        LEFT OUTER JOIN user AS u ON u.ref = c.user
+                  WHERE c.resource = '{$resource}'
+               ORDER BY g.name, u.username
+    ");
     }
     
     
@@ -1995,7 +2038,7 @@ function write_metadata($path, $ref, $uniqid="")
 									$writtenfields[$group_tag].="," . $keyword;
 										 
 									# Convert the data to UTF-8 if not already.
-									if (!$exiftool_write_omit_utf8_conversion && (!isset($mysql_charset) || (isset($mysql_charset) && strtolower($mysql_charset)!="utf8"))){$keyword = mb_convert_encoding($keyword, 'UTF-8');}
+									if (!$exiftool_write_omit_utf8_conversion && (!isset($mysql_charset) || (isset($mysql_charset) && strtolower($mysql_charset)!="utf8"))){$keyword = mb_convert_encoding($keyword, mb_detect_encoding($keyword), 'UTF-8');}
 									$command.= escapeshellarg("-" . $group_tag . "-=" . htmlentities($keyword, ENT_QUOTES, "UTF-8")) . " "; // In case value is already embedded, need to manually remove it to prevent duplication
 									$command.= escapeshellarg("-" . $group_tag . "+=" . htmlentities($keyword, ENT_QUOTES, "UTF-8")) . " ";
 									}
@@ -2011,7 +2054,7 @@ function write_metadata($path, $ref, $uniqid="")
                         $writtenfields[$group_tag]=$writevalue;                          
                         debug ("write_metadata - updating tag " . $group_tag);
                         # Write as is, convert the data to UTF-8 if not already.
-                        if (!$exiftool_write_omit_utf8_conversion && (!isset($mysql_charset) || (isset($mysql_charset) && strtolower($mysql_charset)!="utf8"))){$writevalue = mb_convert_encoding($writevalue, 'UTF-8');}
+                        if (!$exiftool_write_omit_utf8_conversion && (!isset($mysql_charset) || (isset($mysql_charset) && strtolower($mysql_charset)!="utf8"))){$writevalue = mb_convert_encoding($writevalue, mb_detect_encoding($writevalue), 'UTF-8');}
                         $command.= escapeshellarg("-" . $group_tag . "=" . htmlentities($writevalue, ENT_QUOTES, "UTF-8")) . " ";
                     }
                 }
@@ -2717,12 +2760,17 @@ function get_resource_access($resource)
 	$customuseraccess=false;
 	
 	global $k;
-	if ($k!="")
+	if('' != $k)
 		{
         global $internal_share_access;
+
 		# External access - check how this was shared.
-		$extaccess=sql_value("select access value from external_access_keys where resource=".$ref." and access_key='" . escape_check($k) . "' and (expires is null or expires>now())",-1);
-		if ($extaccess!=-1 && (!$internal_share_access || ($internal_share_access && $extaccess<$access))) {return $extaccess;}
+		$extaccess = sql_value("SELECT access `value` FROM external_access_keys WHERE resource = '{$ref}' AND access_key = '" . escape_check($k) . "' AND (expires IS NULL OR expires > NOW())", -1);
+
+		if(-1 != $extaccess && (!$internal_share_access || ($internal_share_access && $extaccess < $access)))
+            {
+            return $extaccess;
+            }
 		}
 	
 	global $uploader_view_override, $userref;
@@ -2760,12 +2808,11 @@ function get_resource_access($resource)
 		}
 
 	global $open_access_for_contributor;
-	if ($open_access_for_contributor && $access == 1 && $resourcedata['created_by'] == $userref)
+	if ($open_access_for_contributor && $resourcedata['created_by'] == $userref)
 		{
-		# If access is restricted and user has contributed resource, grant open access.
-		$access = 0;
+		# If user has contributed resource, grant open access and ignore any further filters.
+		return 0;
 		}
-
 
 	# Check for user-specific and group-specific access (overrides any other restriction)
 	global $userref,$usergroup;
@@ -2981,10 +3028,10 @@ function get_edit_access($resource,$status=-999,$metadata=false,&$resourcedata="
         
 	if (!checkperm("e" . $status)) {return false;} # Must have edit permission to this resource first and foremost, before checking the filter.
 	
-	if (checkperm("z" . $status) || ($status<0 && !(checkperm("t") || $resourcedata['created_by'] == $userref))) {return false;} # Cannot edit if z permission, or if other user uploads pending approval and not admin
+	if (checkperm("z" . $status) || ($status<0 && !(checkperm("t") || $resourcedata['created_by'] == $userref) && !checkperm("ert" . $resourcedata['resource_type']))) {return false;} # Cannot edit if z permission, or if other user uploads pending approval and not admin
 	
 	$gotmatch=false;
-	if (trim($usereditfilter)=="" || $status<0) # No filter set, or resource is still in a User Contributed state in which case the edit filter should not be applied.
+	if (trim($usereditfilter)=="" || ($status<0 && $resourcedata['created_by'] == $userref)) # No filter set, or resource was contributed by user and is still in a User Contributed state in which case the edit filter should not be applied.
 		{
 		$gotmatch = true;
 		}
@@ -3064,84 +3111,62 @@ function filter_match($filter,$name,$value)
 		}
 	return 0;
 	}
-	
-function log_diff($fromvalue,$tovalue)	
-	{
-	# Forumlate descriptive text to describe the change made to a metadata field.
-
-	# Remove any database escaping
-	$fromvalue=str_replace("\\","",$fromvalue);
-	$tovalue=str_replace("\\","",$tovalue);
-	
-	if (substr($fromvalue,0,1)==",")
-		{
-		# Work a different way for checkbox lists.
-		$fromvalue=explode(",",i18n_get_translated($fromvalue));
-		$tovalue=explode(",",i18n_get_translated($tovalue));
-		
-		# Get diffs
-		$inserts=array_diff($tovalue,$fromvalue);
-		$deletes=array_diff($fromvalue,$tovalue);
-
-		# Process array diffs into meaningful strings.
-		$return="";
-		if (count($deletes)>0)
-			{
-			$return.="- " . join("\n- " , $deletes);
-			}
-		if (count($inserts)>0)
-			{
-			if ($return!="") {$return.="\n";}
-			$return.="+ " . join("\n+ ", $inserts);
-			}
-		
-		#debug($return);
-		return $return;
-		}
-
-	# For standard strings, use Text_Diff
-		
-	require_once dirname(__FILE__).'/../lib/Text_Diff/Diff.php';
-	require_once dirname(__FILE__).'/../lib/Text_Diff/Diff/Renderer/inline.php';
-
-	$lines1 = explode("\n",$fromvalue);
-	$lines2 = explode("\n",$tovalue);
-
-	$diff     = new Text_Diff('native', array($lines1, $lines2));
-	$renderer = new Text_Diff_Renderer_inline();
-	$diff=$renderer->render($diff);
-	
-	$return="";
-
-	# The inline diff syntax places inserts within <ins></ins> tags and deletes within <del></del> tags.
-
-	# Handle deletes
-	if (strpos($diff,"<del>")!==false)
-		{
-		$s=explode("<del>",$diff);
-		for ($n=1;$n<count($s);$n++)
-			{
-			$t=explode("</del>",$s[$n]);
-			if ($return!="") {$return.="\n";}
-			$return.="- " . trim(i18n_get_translated($t[0]));
-			}
-		}
-	# Handle inserts
-	if (strpos($diff,"<ins>")!==false)
-		{
-		$s=explode("<ins>",$diff);
-		for ($n=1;$n<count($s);$n++)
-			{
-			$t=explode("</ins>",$s[$n]);
-			if ($return!="") {$return.="\n";}
-			$return.="+ " . trim(i18n_get_translated($t[0]));
-			}
-		}
 
 
-	#debug ($return);
-	return $return;
-	}
+/**
+* Check changes made to a metadata field and create a nice user friendly summary
+* 
+* @uses Diff::compare()
+* @uses Diff::toString()
+* 
+* @param string $fromvalue
+* @param string $tovalue
+* 
+* @return string
+*/
+function log_diff($fromvalue, $tovalue)
+    {
+    $return = '';
+
+    // Remove any database escaping
+    $fromvalue = str_replace("\\", '', $fromvalue);
+    $tovalue   = str_replace("\\", '', $tovalue);
+
+    // Work a different way for fixed lists
+    if(',' == substr($fromvalue, 0, 1))
+        {
+        $fromvalue = explode(',', i18n_get_translated($fromvalue));
+        $tovalue   = explode(',', i18n_get_translated($tovalue));
+
+        // Get diffs
+        $inserts = array_diff($tovalue, $fromvalue);
+        $deletes = array_diff($fromvalue, $tovalue);
+
+        // Process array diffs into meaningful strings
+        if(0 < count($deletes))
+            {
+            $return .= '- ' . join("\n- " , $deletes);
+            }
+
+        if(0 < count($inserts))
+            {
+            if('' != $return)
+                {
+                $return .= "\n";
+                }
+
+            $return .= '+ ' . join("\n+ ", $inserts);
+            }
+
+        return $return;
+        }
+
+    // For standard strings, use Diff library
+    require_once dirname(__FILE__) . '/../lib/Diff/class.Diff.php';
+    $return = Diff::toString(Diff::compare($fromvalue, $tovalue));
+
+    return $return;
+    }
 	
 function update_xml_metadump($resource)
 	{
@@ -3150,6 +3175,7 @@ function update_xml_metadump($resource)
 	if (!$xml_metadump || $resource < 0) {return true;} # Only execute when configured and when not a template
 	
 	$path=dirname(get_resource_path($resource,true,"pre",true)) . "/metadump.xml";
+	hook("before_update_xml_metadump");
 	if (file_exists($path)){$wait=unlink($path);}
 	
 	$ext = htmlspecialchars(sql_value("select file_extension value from resource where ref = '$resource'",''),ENT_QUOTES);
@@ -3194,6 +3220,7 @@ function update_xml_metadump($resource)
 
 	fwrite($f,"</record>\n");
 	fclose($f);
+	hook("after_update_xml_metadump");
 	//chmod($path,0777); // fixme - temporarily make world readable/writable until we have better solution for file permissions
 
 	}
@@ -3998,4 +4025,59 @@ function delete_resource_custom_access_usergroups($ref)
         sql_query("delete from resource_custom_access where resource='" . escape_check($ref) . "' and usergroup is not null");
         }
 
+/**
+* Truncate the field for insertion into the main resource table field
+* 
+* @param string $value
+* 
+* @return string
+*/
+function truncate_join_field_value($value)
+    {
+    global $resource_field_column_limit, $server_charset;
 
+    $encoding = 'UTF-8';
+
+    if(isset($server_charset) && '' != $server_charset)
+        {
+        $encoding = $server_charset;
+        }
+
+    return mb_substr($value, 0, $resource_field_column_limit, $encoding);
+    }
+
+
+/**
+* Check whether a resource (of a video type) has any snapshots created.
+* Snapshots are being created using config option $ffmpeg_snapshot_frames
+* 
+* @param integer $resource_id Resource unique ref
+* @param boolean $file_path   Specify whether the return value should be the file path. Default is FALSE
+* @param boolean $count_only  Set to true if we are only interested in how many snapshots we have. Default is FALSE
+* 
+* @return array|integer Array of all file paths found or number of files found
+*/
+function get_video_snapshots($resource_id, $file_path = false, $count_only = false)
+    {
+    global $storagedir, $storageurl;
+
+    $snapshots_found = array();
+    $path            = get_resource_path($resource_id, true, 'snapshot', false, 'jpg', -1, 1, false, '');
+
+    $i = 1;
+    do
+        {
+        $snapshot_path  = str_replace('snapshot', "snapshot_{$i}", $path);
+        $snapshot_found = file_exists($snapshot_path);
+
+        if($snapshot_found)
+            {
+            $snapshots_found[$i] = ($file_path ? $snapshot_path : str_replace($storagedir, $storageurl, $snapshot_path));
+            }
+
+        $i++;
+        }
+    while(true === $snapshot_found);
+
+    return (!$count_only ? $snapshots_found : count($snapshots_found));
+    }

@@ -149,25 +149,12 @@ $header_favicon="gfx/interface/favicon.png";
 #replace header logo with text, application name and description
 $header_text_title=false;
 
-#If using the old background method, create a clickable area of the resourcespace logo graphic. Defaults to Homepage
+# Is the logo a link to the home page?
 $header_link=true;
-#If $slimheader is off you must set the link height and width to match the size of the logo graphic in pixels (Legacy support)
-#$header_link_height=;
-#$header_link_width=;
 
-###### SLIM HEADER DESIGN ######
-#In order to maintain backwards compatibility you must do the following to turn on the Slim Header Design
-#1. Set #slimheader=true;
-#2. (If you want a custom Logo) Set a source image location for the header logo with $linkedheaderimgsrc="/your/location.png";
-#3. (If you want to see the optional slim themes) Enable slim themes (See Below)
+# Header size class. Options are HeaderSmall, HeaderMid, HeaderLarge.
+$header_size="HeaderMid";
 
-## Slim Themes ##
-# The Slim Charcoal theme can be added to the available themes like so: 
-# $available_themes=array("multi", "whitegry","greyblu","black","slimcharcoal");
-
-## Defaults ##
-#This uses an img tag to display the header and will automatically include a link to the homepage. 
-$slimheader=false;
 # Custom source location for the header image (includes baseurl, requires leading "/"). Will default to the resourcespace logo if left blank. Recommended image size: 350px(X) x 80px(Y)
 
 # Set this to true in order for the top bar to remain present when scrolling down the page
@@ -182,8 +169,9 @@ $linkedheaderimgsrc="";
 # Include ResourceSpace version header in View Source
 $include_rs_header_info=true;
 
-# Used for specifying custom colour for header background
+# Used for specifying custom colours for header 
 $header_colour_style_override='';
+$header_link_style_override='';
 
 # Available languages
 # If $defaultlanguage is not set, the brower's default language will be used instead
@@ -498,9 +486,18 @@ $ffmpeg_global_options = "";
 #$ffmpeg_snapshot_fraction=0.1; # Set this to specify a point in the video at which snapshot image is taken. Expressed as a proportion of the video duration so must be set between 0 and 1. Only valid if duration is greater than 10 seconds.
 #$ffmpeg_snapshot_seconds=10;  # Set this to specify the number of seconds into the video at which snapshot should be taken, overrides the $ffmpeg_snapshot_fraction setting
 
+/*
+Make video previews have multiple snapshots from the video.
+Hovering over a search result thumbnail preview, will show the user frames from the video in order for 
+the user to get an idea of what the video is about
+
+Note: Set to 0 to disable this feature
+*/
+$ffmpeg_snapshot_frames = 12;
+
 # $ffmpeg_command_prefix - Ability to add prefix to command when calling ffmpeg 
 # Example for use on Linux using nice to avoid slowing down the server
-# $ffmpeg_command_prefix = "nice - n 10";
+# $ffmpeg_command_prefix = "nice -n 10";
 
 # If uploaded file is in the preview format already, should we transcode it anyway?
 # Note this is now ON by default as of switching to MP4 previews, because it's likely that uploaded MP4 files will need a lower bitrate preview and
@@ -790,11 +787,6 @@ $videotypes=array(3);
 $resource_type_icons=false;
 
 
-# Sets the default colour theme (defaults to white)
-$defaulttheme="";
-
-
-
 /** USER PREFERENCES **/
 $user_preferences = true;
 
@@ -850,15 +842,14 @@ $contact_sheet_preview_size="250x250";
 # helvetica,times,courier (standard) and dejavusanscondensed for more Unicode support (but embedding/subsetting makes it slower).
 # There are also several other fonts included in the tcpdf lib (but not ResourceSpace), which provide unicode support
 # To embed more elaborate fonts, acquire the files from the TCPDF distribution or create your own using TCPDF utilities, and install them in the lib/tcpdf/fonts folder.
+# If you encounter issues with chinese characters, use "arialunicid0" and make sure GhosScript has ArialUnicodeMS font (on Windows server, this should be there already)
 $contact_sheet_font="helvetica";
-# if using a custom tcpdf font, subsetting is available, but can be turned off
-$subsetting=true; 
 # allow unicode filenames? (stripped out by default in tcpdf but since collection names may 
 # have special characters, probably want to try this on.)
 $contact_sheet_unicode_filenames=true;
 # Set font sizes for contactsheet
-$titlefontsize=10; // Contact Sheet Title
-$refnumberfontsize=8; // This includes field text, not just ref number
+$titlefontsize     = 20; // Contact Sheet Title
+$refnumberfontsize = 14; // This includes field text, not just ref number
 # If making a contact sheet with list sheet style, use these fields in contact sheet:
 $config_sheetlist_fields = array(8);
 $config_sheetlist_include_ref=true;
@@ -887,13 +878,21 @@ $contact_sheet_logo_resize=true;
 # Give user option to add/remove logo?
 #$contact_sheet_logo_option=true;
 
-# Optional example footer html to include on contact sheet
-#$contact_sheet_custom_footerhtml='<div style="text-align: center" >XXX MAIN STREET, CITY, ABC 123 - TEL: (111) 000-8888 - FAX: (000) 111-9999</div><table style="width:100%;margin:auto;"><tr><td style="width:50%;text-align: center" >resourcespace.org</td><td style="width:50%;text-align: center" >&#0169; ReourceSpace. All Rights Reserved.</td></tr></table>';
+# Show contact sheet footer (old $contact_sheet_custom_footerhtml removed as this is now handled in templates and enabled by either showing/ hiding the footer)
+$contact_sheet_footer = false;
 
 # Make images in contactsheet links to the resource view page?
 $contact_sheet_add_link=true;
 # Give user option to enable links?
 $contact_sheet_add_link_option=false;
+
+# Use watermarked previews for contact sheets? If set to 'true' watermarks will be forced rather than judged based on user credentials.
+$contact_sheet_force_watermarks=false;
+# Give user option to force watermarks?
+$contact_sheet_force_watermark_option=false;
+
+# Show contact sheet metadata under preview? For thumbnail view only
+$contact_sheet_metadata_under_thumbnail=false;
 
 $contact_sheet_single_select_size=false;
 
@@ -1333,6 +1332,18 @@ $feedback_resource_select=false;
 # If true pre, thm, and col sizes will not be considered.
 $lean_preview_generation=false;
 
+# Experimental ImageMagic optimizations. This will not work for GraphicsMagick.
+$imagemagick_mpr=false;
+
+# Set the depth to be passed to mpr command.
+$imagemagick_mpr_depth="8";
+
+# Should colour profiles be preserved?
+$imagemagick_mpr_preserve_profiles=true;
+
+# If using imagemagick and mpr, specify any metadata profiles to be retained. Default setting good for ensuring copyright info is not stripped which may be required by law
+$imagemagick_mpr_preserve_metadata_profiles=array('iptc');
+
 # Should resource views be logged for reporting purposes?
 # Note that general daily statistics for each resource are logged anyway for the statistics graphs
 # - this option relates to specific user tracking for the more detailed report.
@@ -1392,6 +1403,9 @@ $mime_type_by_extension = array(
 # PHP execution time limit
 # Default is 5 minutes.
 $php_time_limit=300;
+
+# Cron jobs maximum execution time (Default: 30 minutes)
+$cron_job_time_limit = 1800;
 
 # Should the automatically produced FLV file be available as a separate download?
 $flv_preview_downloadable=false;
@@ -1845,7 +1859,9 @@ $reporting_periods_default=array(7,30,100,365);
 
 
 # For checkbox list searching, perform logical AND instead of OR when ticking multiple boxes.
-$checkbox_and=false;
+$checkbox_and = false;
+# For dynamic keyword list searching, perform logical AND instead of OR when selecting multiple options.
+$dynamic_keyword_and = false;
 
 # Option to show resource ID in the thumbnail, next to the action icons.
 $display_resource_id_in_thumbnail=false;
@@ -1862,6 +1878,9 @@ $collection_allow_not_approved_share=false;
 #Allow the smartsearch to override $access rules when searching
 $smartsearch_accessoverride=true;
 
+# Allow special searches to honor resource type settings.
+$special_search_honors_restypes=false;
+
 # Image preview zoom using jQuery.zoom (hover over the preview image to zoom in on the resource view page)
 $image_preview_zoom=false;
 
@@ -1877,11 +1896,6 @@ $resource_field_column_limit=200;
 # This is used for the ResourceSpace demo installation.
 #
 # $resource_created_by_filter=array();
-
-# Tell the browser to load the Ubuntu font from Google, used by the new styling.
-# This can be set to 'false' to improve loading times if you are using custom styling
-# that does not use this font.
-$load_ubuntu_font=true;
 
 
 #
@@ -2130,6 +2144,10 @@ $enable_plugin_upload = true;
 # Note that a Google Maps API key is no longer required.
 #Disable geocoding features?
 $disable_geocoding = false;
+$use_google_maps = false;
+
+# After obtaining an API key, please set the following config option:
+# $google_maps_api_key = '';
 
 #Enable geolocating multiple assets on a map that are part of a collection
 $geo_locate_collection = false;
@@ -2258,7 +2276,7 @@ $wildcard_always_applied_leading = false;
 $U_perm_strict=false;
 
 # enable remote apis (if using API, RSS2, or other plugins that allow remote authentication via an api key)
-$enable_remote_apis=false;
+$enable_remote_apis=true;
 $api_scramble_key="abcdef123";
 
 # Allow users capable of deleting a full collection (of resources) to do so from the Collection Manage page.
@@ -2462,14 +2480,15 @@ $email_errors_address="";
 # Only enable if the extension is present.
 $use_mysqli=function_exists("mysqli_connect");
 
+# Use prepared statements
+# Default is false until technology proven
+$use_mysqli_prepared=$use_mysqli && false;
+
 # Experimental performance enhancement - two pass mode for search results.
 # The first query returns only the necessary number of results for the current search results display
 # The second query is the same but returns only a count of the full result set, which is used to pad the result array to the correct size (so counts display correctly).
 # This means that large volumes of resource data are not passed around unnecessarily, which can significantly improve performance on systems with large data sets.
 $search_sql_double_pass_mode=true;
-
-# Experimental performance enhancement - only search for fields with matching keywords that are supposed to be indexed.
-$search_sql_force_field_index_check = false;
 
 # Use the new tab ordering system. This will sort the tabs by the order by value set in System Setup
 $use_order_by_tab_view=false;
@@ -2705,7 +2724,9 @@ $no_welcometext = false;
 # e.g. for photo (resource type 1 by default)
 # $resource_type_request_emails[1]="imageadministrator@my.site"; 
 # e.g. for documents (resource type 2 by default)
-# $resource_type_request_emails[2]="documentadministrator@my.site"; 
+# $resource_type_request_emails[2]="documentadministrator@my.site";
+#Can be used so that along with the users/emails specified by $resource_type_request_emails, the rest of the users can be notified as well
+$resource_type_request_emails_and_email_notify = false;
 
 # $rating_field. A legacy option that allows for selection of a metadata field that contains administrator ratings (not user ratings) that will be displayed in search list view. Field must be plain text and have numeric only numeric values.
 # $rating_field=121;
@@ -2859,6 +2880,9 @@ $password_reset_link_expiry =1;
 # Show the resource view in a modal when accessed from search results.
 $resource_view_modal=true;
 
+# Show the resource edit in a modal when accessed from resource view modal.
+$resource_edit_modal_from_view_modal=false;
+
 # Show geographical search results in a modal
 $geo_search_modal_results = true;
 
@@ -2888,6 +2912,16 @@ $resource_request_reason_required=true;
 
 # Use the 'chosen' library for rendering dropdowns (improved display and search capability for large dropdowns)
 $chosen_dropdowns=false;
+
+# The number of options that must be present before including seach capability.
+$chosen_dropdowns_threshold_main=10;
+$chosen_dropdowns_threshold_simplesearch=10;
+
+# Use the 'chosen' library for rendering dropdowns in the collection bar. $chosen_dropdowns must be set to true.
+$chosen_dropdowns_collection=false;
+
+# The number of options that must be present before including seach capability for collection bar dropdowns.
+$chosen_dropdowns_threshold_collection=10;
 
 # Allow ResourceSpace to upload multiple times the same file in a row
 # Set to true only if you want RS to create duplicates when client is losing
@@ -3031,3 +3065,21 @@ $launch_kb_on_login_for_groups=array();
 # This is used by Montala to automatically test the RS trunk on a nightly basis.
 # $email_test_fails_to="example@example.com";
 
+# Option to hide the collection bar (hidden, not minimised) if it has no resources in it
+$collection_bar_hide_empty=false;
+
+# Should the alternative files be visible to restricted users (they must still request access to download however)
+$alt_files_visible_when_restricted=true;
+
+# Option to prevent resource types specified in array from being added to collections. Will not affect existing resources in collections
+# e.g. $collection_block_restypes=array(3,4);
+$collection_block_restypes=array();
+
+# Option to remove all resources from the current collection once it has been requested
+$collection_empty_on_submit=false;
+
+# Retina mode. Use the "next size up" when rending previews and thumbs for a more crisp display on high resolution screens. Note - uses much more bandwidth also.
+$retina_mode=false;
+
+# $xframe_options - set this to SAMEORIGIN or ALLOW-FROM with a URL to allow site to be used in an iframe
+$xframe_options = "DENY";

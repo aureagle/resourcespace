@@ -1,8 +1,5 @@
 <?php
 
-
-include dirname(__FILE__) . "/../include/tms_link_functions.php";
-
 function HookTms_linkEditEditbeforesectionhead()
 	{
 	global $lang,$baseurl,$tms_link_object_id_field, $ref,$resource,$tms_confirm_upload,$tms_link_resource_types;
@@ -145,4 +142,4 @@ function HookTms_linkEditAftersaveresourcedata()
 			}
 		}	
 	}
-	
+

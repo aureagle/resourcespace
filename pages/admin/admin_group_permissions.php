@@ -48,7 +48,7 @@ if (getval("save","")!="")
 		}
 
 	log_activity(null,LOG_CODE_EDITED,join(",",$perms),'usergroup','permissions',$ref,null,null,null,true);
-	sql_query("update usergroup set permissions='" . join(",",$perms) . "' where ref='$ref'");
+	sql_query("update usergroup set permissions='" . escape_check(join(",",$perms)) . "' where ref='$ref'");
 	}
 
 $group=get_usergroup($ref);
@@ -175,11 +175,19 @@ foreach ($rtypes as $rtype)
 	{
 	DrawOption("XU" . $rtype["ref"], $lang["restricted_upload_for_resource_of_type"] . " '" . lang_or_i18n_get_translated($rtype["name"], "resourcetype-") . "'", false);
 	}
+	
+# ------------ Edit access to resource types (in any archive state to whcih the group has access)
+foreach ($rtypes as $rtype)
+	{
+	DrawOption("ert" . $rtype["ref"], $lang["can_edit_resource_type"] ." '" . lang_or_i18n_get_translated($rtype["name"], "resourcetype-") . "'");
+	}
 
 ?>				<tr class="ListviewTitleStyle">
 					<td colspan=3 class="permheader"><?php echo $lang["resource_creation_and_management"] ?></td>
 				</tr>
 <?php
+
+
 
 # ------------ Edit access to workflow states
 for ($n=-2;$n<=3;$n++)
@@ -299,7 +307,6 @@ DrawOption('ex', $lang['permission_manage_external_shares']);
 				</tr>
 <?php
 DrawOption("p", $lang["can_change_own_password"], true);
-DrawOption("u", $lang["can_manage_users"]);
 DrawOption("U", $lang["can_manage_users_in_children_groups"]);
 DrawOption("E", $lang["can_email_resources_to_own_and_children_and_parent_groups"]);
 DrawOption("x", $lang["allow_user_group_selection_for_access_when_sharing_externally"]);

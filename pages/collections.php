@@ -10,15 +10,15 @@ include_once dirname(__FILE__)."/../include/resource_functions.php";
 include_once dirname(__FILE__)."/../include/search_functions.php";
 include_once dirname(__FILE__) . '/../include/render_functions.php';
 
-$order_by=getvalescaped("order_by",$default_collection_sort);
-$sort=getvalescaped("sort","DESC");
-$search=getvalescaped("search","");
-$last_collection=getval('last_collection','');
-$restypes=getvalescaped('restypes','');
-$archive=getvalescaped('archive','');
-$daylimit=getvalescaped('daylimit','');
-$offset=getvalescaped('offset','');
-$resources_count=getvalescaped('resources_count','');
+$order_by        = getvalescaped('order_by', $default_collection_sort);
+$sort            = getvalescaped('sort', 'DESC');
+$search          = getvalescaped('search', '');
+$last_collection = getval('last_collection', '');
+$restypes        = getvalescaped('restypes', '');
+$archive         = getvalescaped('archive', '');
+$daylimit        = getvalescaped('daylimit', '');
+$offset          = getvalescaped('offset', '');
+$resources_count = getvalescaped('resources_count', '');
 
 $change_col_url="search=" . urlencode($search). "&order_by=" . urlencode($order_by) . "&sort=" . urlencode($sort) . "&restypes=" . urlencode($restypes) . "&archive=" .urlencode($archive) . "&daylimit=" . urlencode($daylimit) . "&offset=" . urlencode($offset) . "&resources_count=" . urlencode($resources_count);
 
@@ -104,7 +104,10 @@ if ($collection!="")
 // Load collection info. 
 // get_user_collections moved before output as function may set cookies
 $cinfo=get_collection($usercollection);
-$list=get_user_collections($userref);
+if('' == $k || $internal_share_access)
+    {
+    $list = get_user_collections($userref);
+    }
 
 # if the old collection or new collection is being displayed as search results, we'll need to update the search actions so "save results to this collection" is properly displayed
 if(substr($search, 0, 11) == '!collection' && ($k == '' || $internal_share_access))
@@ -184,7 +187,7 @@ if ($allow_reorder)
 				helper: function(event, ui)
 					{
 					//Hack to append the element to the body (visible above others divs), 
-					//but still bellonging to the scrollable container
+					//but still belonging to the scrollable container
 					jQuery('#CollectionSpace').append('<div id="CollectionSpaceClone" class="ui-state-default">' + ui[0].outerHTML + '</div>');   
 					jQuery('#CollectionSpaceClone').hide();
 					setTimeout(function() {
@@ -323,6 +326,7 @@ else { ?>
 
 		jQuery(document).ready(function() {
 			jQuery('#CentralSpace').trigger('prepareTrash');
+			CheckHideCollectionBar();
 		});
 	</script>
 	<!-- End of Drag and Drop -->
@@ -462,7 +466,31 @@ if ($addsearch!=-1)
             $resourcesnotadded=add_saved_search_items($usercollection);
             if (!empty($resourcesnotadded))
                 {
-                ?><script language="Javascript">alert("<?php echo $lang["notapprovedresources"] . implode(", ",$resourcesnotadded);?>");</script><?php
+		$warningtext="";
+		//exit($resourcesnotadded["blockedtypes"]);
+		if(isset($resourcesnotadded["blockedtypes"]))
+			{
+			// There are resource types blocked due to $collection_block_restypes
+			$warningtext = $lang["collection_restype_blocked"] . "<br /><br />";
+			//$restypes=get_resource_types(implode(",",$collection_block_restypes));
+			$blocked_types=get_resource_types(implode(",",$resourcesnotadded["blockedtypes"]));
+			foreach($blocked_types as $blocked_type)
+				{
+				if($warningtext==""){$warningtext.="<ul>";}
+				$warningtext.= "<li>" . $blocked_type["name"] . "</li>";
+				}
+			$warningtext.="</ul>";
+			unset($resourcesnotadded["blockedtypes"]);
+			}
+			
+		if (!empty($resourcesnotadded))	
+			{
+			// There are resources blocked from being added due to archive state
+			if($warningtext==""){$warningtext.="<br /><br />";}
+			$warningtext .= $lang["notapprovedresources"] . implode(", ",$resourcesnotadded);
+			}
+		
+                ?><script language="Javascript">styledalert("<?php echo $lang["status-warning"]; ?>","<?php echo $warningtext; ?>",600);</script><?php
                 }
             # Log this
             daily_stat("Add saved search items to collection",0);
@@ -526,11 +554,11 @@ hook("processusercommand");
 $searches=get_saved_searches($usercollection);
 
 // Do an initial count of how many resources there are in the collection (only returning ref and archive)
-$results_all=do_search("!collection" . $usercollection,"","relevance",0,-1,"desc",false,0,false,false,"",false,true,true);
-$count_result=count($results_all);
+$results_all  = do_search("!collection{$usercollection}", '', $order_by, 0, -1, $sort, false, 0, false, false, '', false, true, true);
+$count_result = count($results_all);
 
 // Then do another pass getting all data for the maximum allowed collection thumbs
-$result=do_search("!collection" . $usercollection,"","relevance",0,$max_collection_thumbs,"desc");
+$result = do_search("!collection{$usercollection}", '', $order_by, 0, $max_collection_thumbs, $sort);
 
 $hook_count=hook("countresult","",array($usercollection,$count_result));if (is_numeric($hook_count)) {$count_result=$hook_count;} # Allow count display to be overridden by a plugin (e.g. that adds it's own resources from elsewhere e.g. ResourceConnect).
 $feedback=$cinfo["request_feedback"];
@@ -715,7 +743,7 @@ elseif ($k!="" && !$internal_share_access)
                 
 
 			#show only active collections if a start date is set for $active_collections 
-			if (strtotime($list[$n]['created']) > ((isset($active_collections))?strtotime($active_collections):1))
+			if (strtotime($list[$n]['created']) > ((isset($active_collections))?strtotime($active_collections):1) || ($list[$n]['name']=="My Collection" && $list[$n]['user']==$userref))
 					{ ?>
 			<option value="<?php echo $list[$n]["ref"]?>" <?php if ($usercollection==$list[$n]["ref"]) {?> 	selected<?php $found=true;} ?>><?php echo i18n_get_collection_name($list[$n]) ?> <?php if ($collection_dropdown_user_access_mode){echo htmlspecialchars("(". $colusername."/".$accessmode.")"); } ?></option>
 			<?php }
@@ -831,11 +859,12 @@ if ($count_result>0)
 		<?php $access=get_resource_access($result[$n]);
 		$use_watermark=check_use_watermark();?>
 		<table border="0" class="CollectionResourceAlign"><tr><td>
-		<a style="position:relative;" onclick="return <?php echo ($resource_view_modal?"Modal":"CentralSpace") ?>Load(this,true);" href="<?php echo $baseurl_short?>pages/view.php?ref=<?php echo urlencode($ref) ?>&search=<?php echo urlencode("!collection" . $usercollection)?>&k=<?php echo $k?>&curpos=<?php echo $n ?>"><?php if ($result[$n]["has_image"]==1) { 
+		<a style="position:relative;" onclick="return <?php echo ($resource_view_modal?"Modal":"CentralSpace") ?>Load(this,true);" href="<?php echo $baseurl_short?>pages/view.php?ref=<?php echo urlencode($ref) ?>&search=<?php echo urlencode("!collection" . $usercollection)?>&k=<?php echo urlencode($k)?>&curpos=<?php echo $n ?>"><?php if ($result[$n]["has_image"]==1) { 
 		
-		$colimgpath=get_resource_path($ref,false,"col",false,$result[$n]["preview_extension"],-1,1,$use_watermark,$result[$n]["file_modified"])
+		$colimgpath=get_resource_path($ref,false,($retina_mode?"thm":"col"),false,$result[$n]["preview_extension"],-1,1,$use_watermark,$result[$n]["file_modified"])
 		?>
-		<img border=0 src="<?php echo $colimgpath?>" class="CollectImageBorder" title="<?php echo htmlspecialchars(i18n_get_translated($result[$n]["field".$view_title_field]))?>" alt="<?php echo htmlspecialchars(i18n_get_translated($result[$n]["field".$view_title_field]))?>" />
+		<img border=0 src="<?php echo $colimgpath?>" class="CollectImageBorder" title="<?php echo htmlspecialchars(i18n_get_translated($result[$n]["field".$view_title_field]))?>" alt="<?php echo htmlspecialchars(i18n_get_translated($result[$n]["field".$view_title_field]))?>"
+                   <?php if ($retina_mode) { ?>onload="this.width/=2;this.onload=null;"<?php } ?> />
 			<?php
 		
 		} else { ?><img border=0 src="<?php echo $baseurl_short?>gfx/<?php echo get_nopreview_icon($result[$n]["resource_type"],$result[$n]["file_extension"],true) ?>" /><?php } ?><?php hook("aftersearchimg","",array($result[$n]))?></a></td>
@@ -878,10 +907,19 @@ if ($count_result>0)
 
 		<?php if (!isset($cinfo['savedsearch'])||(isset($cinfo['savedsearch'])&&$cinfo['savedsearch']==null)){ // add 'remove' link only if this is not a smart collection 
 			?>
-		<?php if (!hook("replaceremovelink")){?>
-		<a class="CollectionResourceRemove" onclick="return CollectionDivLoad(this);" href="<?php echo $baseurl_short?>pages/collections.php?remove=<?php echo urlencode($ref) ?>&nc=<?php echo time()?>"><i class="fa fa-minus-circle"></i> <?php echo $lang["action-remove"]?></a>
-		<?php
-				} //end hook replaceremovelink 
+            
+        <?php
+        $rating = '';
+        if(isset($rating_field))
+            {
+            $rating = "field{$rating_field}";
+            }
+            
+            $url = $baseurl_short."pages/view.php?ref=" . $ref . "&amp;search=" . urlencode($search) . "&amp;order_by=" . urlencode($order_by) . "&amp;sort=". urlencode($sort) . "&amp;offset=" . urlencode($offset) . "&amp;archive=" . urlencode($archive) . "&amp;k=" . urlencode($k) . "&amp;curpos=" . urlencode($n) . '&amp;restypes=' . urlencode($restypes);
+            
+        # Include standard search views    
+        include "search_views/resource_tools.php";  
+            
 			} # End of remove link condition 
 		?></div><?php 
 		} # End of k="" condition 
@@ -1051,4 +1089,92 @@ hook("thumblistextra");
 	</div>
 	<?php } ?>
 
-<?php draw_performance_footer();
+<?php
+draw_performance_footer();
+
+if ($chosen_dropdowns && $chosen_dropdowns_collection) { ?>
+<!-- Chosen support -->
+<script type="text/javascript">
+	chosenColElm = (thumbs=='show' ? '#CollectionMaxDiv' : '#CollectionMinDiv');
+	var css_width = jQuery(chosenColElm+" select").css("width");
+	jQuery(chosenColElm+" select").each(function(){
+		var css_width = jQuery(this).css("width");
+		jQuery(this).chosen({disable_search_threshold: chosenCollectionThreshold, 'width': css_width});
+	});
+	
+	jQuery("#CollectionDiv select").on('chosen:showing_dropdown', function(event, params) {
+	   
+	   var chosen_container = jQuery( event.target ).next( '.chosen-container' );
+	   chosen_containerParent = jQuery(chosen_container).parent();
+	   var dropdown = chosen_container.find( '.chosen-drop' );
+	   var dropdown_top = dropdown.offset().top - jQuery('#CollectionDiv').scrollTop();
+	   var dropdown_height = dropdown.height();
+	   var viewport_height = jQuery('#CollectionDiv').height();
+
+	   if ( dropdown_top + dropdown_height > viewport_height ) {
+		  chosen_container.addClass( 'chosen-drop-up' );
+		  myLayout.allowOverflow('south');
+	   }
+	   switch(thumbs){
+	   		case 'show':
+	   			
+	   			if(jQuery(chosen_containerParent).hasClass('SearchItem')){
+					jQuery("#colselect .chosen-drop").css("display","block");
+				}
+				else{
+					jQuery("#CollectionMaxDiv .ActionsContainer .chosen-drop").css("display","block");
+				}
+	   			break;
+	   		case 'hide':
+	   			
+	   			if(jQuery(chosen_containerParent).attr('id')=='MinColDrop'){
+					jQuery("#colselect2 .chosen-drop").css("display","block");
+				}
+				else{
+					jQuery("#CollectionMinRightNav .ActionsContainer .chosen-drop").css("display","block");
+				}
+				break;
+	   }
+
+	});
+	
+	jQuery("#CollectionDiv select").on('chosen:hiding_dropdown', function(event, params) {
+	   
+	   myLayout.resetOverflow('south');
+	   chosen_containerParent = jQuery( event.target ).next( '.chosen-container' ).parent()
+	   jQuery( event.target ).next( '.chosen-container' ).removeClass( 'chosen-drop-up' );
+	   switch(thumbs){
+	   		case 'show':
+	   			if(jQuery(chosen_containerParent).hasClass('SearchItem')){
+					jQuery("#colselect .chosen-drop").css("display","none");
+				}
+				else{
+					jQuery("#CollectionMaxDiv .ActionsContainer .chosen-drop").css("display","none");
+				}
+	   			break;
+	   		case 'hide':
+	   			if(jQuery(chosen_containerParent).attr('id')=='MinColDrop'){
+					jQuery("#colselect2 .chosen-drop").css("display","none");
+				}
+				else{
+					jQuery("#CollectionMinRightNav .ActionsContainer .chosen-drop").css("display","none");
+				}
+				break;
+	   } 
+	});
+	
+	// for some reason creating a collection would not work without specifying this bit of code...
+	jQuery('#entername2').keyup(function(e){
+		if(e.keyCode == 13){
+			jQuery("#colselect2").submit();
+		}
+	});
+	
+	jQuery('#entername').keyup(function(e){
+		if(e.keyCode == 13){
+			jQuery("#colselect").submit();
+		}
+	});
+</script>
+<!-- End of chosen support -->
+<?php } ?>

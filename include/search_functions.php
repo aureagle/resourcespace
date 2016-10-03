@@ -179,27 +179,6 @@ function do_search($search,$restypes="",$order_by="relevance",$archive=0,$fetchr
     # Fetch a list of fields that are not available to the user - these must be omitted from the search.
     $hidden_indexed_fields=get_hidden_indexed_fields();
 
-    // This is a performance enhancement that will discard any keyword matches for fields that are not supposed to be indexed.
-    $sql_restrict_by_field_types = '';
-    global $search_sql_force_field_index_check;
-    if(isset($search_sql_force_field_index_check) && $search_sql_force_field_index_check && '' != $restypes)
-        {
-        if('Global' == substr($restypes, 0, 6))
-            {
-            // remove "Global," from the list
-            $restypes = substr($restypes, 7);
-            }
-
-        // 0 is for global fields which need to be added here as well
-        $sql_restrict_by_field_types = sql_value("SELECT group_concat(ref) AS `value` FROM resource_type_field WHERE keywords_index = 1 AND resource_type IN (0, {$restypes})", '');
-
-        if('' != $sql_restrict_by_field_types)
-            {
-            // -1 needed for global search
-            $sql_restrict_by_field_types = '-1,' . $sql_restrict_by_field_types;
-            }
-        }
-
     if ($keysearch)
         {
         for ($n=0;$n<count($keywords);$n++)
@@ -571,13 +550,8 @@ function do_search($search,$restypes="",$order_by="relevance",$archive=0,$fetchr
                                     } 
                                 else  // we are dealing with a standard keyword match
                                     {
-									$filter_by_resource_field_type="";
-									if ($sql_restrict_by_field_types!="")
-										{
-										$filter_by_resource_field_type = "and k{$c}.resource_type_field in ({$sql_restrict_by_field_types})";  // -1 needed for global search
-										}
 									$union="SELECT resource, {$bit_or_condition} SUM(hit_count) AS score FROM resource_keyword k{$c}
-									WHERE (k{$c}.keyword={$keyref} {$filter_by_resource_field_type} {$relatedsql} {$union_restriction_clause})
+									WHERE (k{$c}.keyword={$keyref} {$relatedsql} {$union_restriction_clause})
 									GROUP BY resource{$superaggregation}";
 									$sql_keyword_union[]=$union;
 									}
@@ -968,7 +942,7 @@ function search_form_to_search_query($fields,$fromsearchbar=false)
     #
     # This is used to take the advanced search form and assemble it into a search query.
     
-    global $auto_order_checkbox,$checkbox_and;
+    global $auto_order_checkbox,$checkbox_and,$dynamic_keyword_and;
     $search="";
     if (getval("year","")!="")
         {
@@ -1266,11 +1240,18 @@ function search_form_to_search_query($fields,$fromsearchbar=false)
                 $keywords=split_keywords($selected[$m]);
                 foreach ($keywords as $keyword) {resolve_keyword($keyword,true);}
                 }
-            if ($p!="")
+            if ($p!="" && !$dynamic_keyword_and)
                 {
                 if ($search!="") {$search.=", ";}
                 $search.=$fields[$n]["name"] . ":" . $p;
                 }
+            elseif ($p!="" && $dynamic_keyword_and)
+                    {
+                    $p=str_replace(";",", {$fields[$n]["name"]}:",$p);	// this will force each and condition into a separate union in do_search (which will AND)
+                    if ($search!="") {$search.=", ";}
+                    $search.=$fields[$n]["name"] . ":" . $p;
+                    }   
+                
             break;
         
             // Radio buttons:
@@ -1341,7 +1322,7 @@ function search_form_to_search_query($fields,$fromsearchbar=false)
             }
         if(count($propertysearchcodes)>0)
             {
-            $search = '!properties' . implode(';', $propertysearchcodes) . ' ' . $search;
+            $search = '!properties' . implode(';', $propertysearchcodes) . ', ' . $search;
             }
         else
             {
@@ -1371,7 +1352,7 @@ function refine_searchstring($search){
     # This function solves several issues related to searching.
     # it eliminates duplicate terms, helps the field content to carry values over into advanced search correctly, fixes a searchbar bug where separators (such as in a pasted filename) cause an initial search to fail, separates terms for searchcrumbs.
     
-    global $use_refine_searchstring;
+    global $use_refine_searchstring, $dynamic_keyword_and;
     
     if (!$use_refine_searchstring){return $search;}
     
@@ -1384,6 +1365,7 @@ function refine_searchstring($search){
     $keywords=split_keywords($search);
 
     $orfields=get_OR_fields(); // leave checkbox type fields alone
+    $dynamic_keyword_fields=sql_array("select name value from resource_type_field where type=9");
     
     $fixedkeywords=array();
     foreach ($keywords as $keyword){
@@ -1394,7 +1376,7 @@ function refine_searchstring($search){
             $keyname=$keywordar[0];
             if (substr($keyname,0,1)!="!"){
                 if(substr($keywordar[1],0,5)=="range"){$keywordar[1]=str_replace(" ","-",$keywordar[1]);}
-                if (!in_array($keyname,$orfields)){
+                if (!in_array($keyname,$orfields) && (!$dynamic_keyword_and || ($dynamic_keyword_and && !in_array($keyname, $dynamic_keyword_fields)))){
                     $keyvalues=explode(" ",str_replace($keywordar[0].":","",$keywordar[1]));
                 } else {
                     $keyvalues=array($keywordar[1]);
@@ -1534,9 +1516,7 @@ function compile_search_actions($top_actions)
 
         if($resources_count != 0)
             {
-            if($usercollection != $collection)
-                {
-                $extra_tag_attributes = sprintf('
+				$extra_tag_attributes = sprintf('
                         data-url="%spages/collections.php?addsearch=%s&restypes=%s&archive=%s&mode=resources&daylimit=%s"
                     ',
                     $baseurl_short,
@@ -1551,7 +1531,7 @@ function compile_search_actions($top_actions)
     			$options[$o]['data_attr']=array();
     			$options[$o]['extra_tag_attributes']=$extra_tag_attributes;
     			$o++;
-                }
+                
 
             if(0 != $resources_count && $show_searchitemsdiskusage) 
                 {
@@ -1962,7 +1942,8 @@ function search_special($search,$sql_join,$fetchrows,$sql_prefix,$sql_suffix,$or
             }
         if($return_refs_only)
             {
-            $result = sql_query($searchsql,false,$fetchrows,true,2,true,array('ref','archive'));    // note that we actually include archive column too as often used to work out permission to edit collection
+            // note that we actually include archive and created by columns too as often used to work out permission to edit collection
+            $result = sql_query($searchsql,false,$fetchrows,true,2,true,array('ref','archive', 'created_by'));
             }
         else
             {
@@ -2089,6 +2070,10 @@ function search_special($search,$sql_join,$fetchrows,$sql_prefix,$sql_suffix,$or
         
         # Extract the user ref
         $cuser=explode(" ",$search);$cuser=str_replace("!contributions","",$cuser[0]);
+        
+        // Don't filter if user is searching for their own resources and $open_access_for_contributor=true;
+		global $open_access_for_contributor;
+		if($open_access_for_contributor && $userref==$cuser){$sql_filter="archive = '$archive'";$sql_join="";}
         
         $select=str_replace(",rca.access group_access,rca2.access user_access ",",null group_access, null user_access ",$select);
         return sql_query($sql_prefix . "select distinct r.hit_count score, $select from resource r $sql_join  where created_by='" . $cuser . "' and r.ref > 0 and $sql_filter group by r.ref order by $order_by" . $sql_suffix,false,$fetchrows);

@@ -31,15 +31,18 @@ else
 
 <div class="BasicsBox">
 <?php
-if($alternative!=='')
+if(!hook('replace_tbu_backlinks'))
 	{
-	?>
-	<p>
-		<a href="<?php echo $baseurl_short?>pages/alternative_files.php?ref=<?php echo urlencode($alternative)?>" onClick="return CentralSpaceLoad(this,true);"><?php echo LINK_CARET_BACK ?><?php echo $lang["backtomanagealternativefiles"]?></a>
-		<br / >
-		<a onClick="return CentralSpaceLoad(this,true);" href="<?php echo $baseurl_short?>pages/view.php?ref=<?php echo urlencode($alternative)?>"><?php echo LINK_CARET_BACK ?><?php echo $lang["backtoresourceview"]?></a>
-	</p>
-	<?php
+	if($alternative!=='')
+		{
+		?>
+		<p>
+			<a href="<?php echo $baseurl_short?>pages/alternative_files.php?ref=<?php echo urlencode($alternative)?>" onClick="return CentralSpaceLoad(this,true);"><?php echo LINK_CARET_BACK ?><?php echo $lang["backtomanagealternativefiles"]?></a>
+			<br / >
+			<a onClick="return CentralSpaceLoad(this,true);" href="<?php echo $baseurl_short?>pages/view.php?ref=<?php echo urlencode($alternative)?>"><?php echo LINK_CARET_BACK ?><?php echo $lang["backtoresourceview"]?></a>
+		</p>
+		<?php
+		}
 	}
 ?>
 <h1><?php echo $titleh1 ?></h1>
@@ -226,7 +229,7 @@ for ($n=0;$n<count($uploadfiles);$n++)
 				$thumb = get_resource_path($ref, true, "thm", false, $rd["preview_extension"]);
 				if (file_exists($thumb))
 					{
-					$previewstatus.= "<br/><img src='" . get_resource_path($ref, false, "thm", false, $rd["preview_extension"]) . "'><br/><br/>";
+					$previewstatus.= "<br/><a href='".$baseurl."/pages/view.php?ref=".$ref."'&search=!last100><img src='" . get_resource_path($ref, false, "thm", false, $rd["preview_extension"]) . "'></a><br/><a href='".$baseurl."/pages/view.php?ref=".$ref."'&search=!last100>> ".$lang['action-view']."</a>&nbsp;&nbsp;<a href='".$baseurl."/pages/edit.php?ref=".$ref."'&search=!last100>> ".$lang['action-edit']."</a>&nbsp;&nbsp;<a href='".$baseurl."/pages/alternative_files.php?ref=".$ref."'&search=!last100>> ".$lang['managealternativefiles']."</a><br/><br/>";
 					}
 				else {$previewstatus.= "<br/><br/>";}
 				?><script type="text/javascript">document.getElementById('uploadlog').innerHTML+="<?php echo $previewstatus ?>";</script><?php

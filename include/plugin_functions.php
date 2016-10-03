@@ -1320,13 +1320,9 @@ function config_custom_select($name, $label, $available, $value)
     config_single_select($name, $label, $value, $available, false);
     }
 
-function get_plugin_css($theme){
+function get_plugin_css(){
 	global $plugins,$baseurl,$language,$css_reload_key;
-	// remove "col-" from $theme
-	if (stripos($theme,'col-') !== false)
-		{
-		$theme = substr($theme,4);
-		}
+
 	$plugincss="";
 	for ($n=count($plugins)-1;$n>=0;$n--)
 	{
@@ -1343,15 +1339,32 @@ function get_plugin_css($theme){
 		{
 		$plugincss.='<link href="' . get_plugin_path($plugins[$n],true) . '/css/style-' . $language . '.css?css_reload_key='.$css_reload_key.'" rel="stylesheet" type="text/css" media="screen,projection,print" class="plugincss" />
 		';
-		}	
-
-	# Allow colour theme specific styles
-	$csspath=get_plugin_path($plugins[$n]) . "/css/Col-".$theme.".css";	
-	if (file_exists($csspath))
-		{
-		$plugincss.='<link href="' . get_plugin_path($plugins[$n],true) . '/css/Col-'.$theme.'.css?css_reload_key='.$css_reload_key.'" rel="stylesheet" type="text/css" media="screen,projection,print" class="plugincss" />
-		';
 		}
+	
+	# additional plugin css functionality
+	$plugincss.=hook('moreplugincss','',array($plugins, $n));
+        
 	}
 	return $plugincss;
 }
+/*
+Activate language and configuration for plugins for use on setup page if plugin is not enabled for user group
+
+@param string $plugin_name the name of the plugin to activate
+*/
+function plugin_activate_for_setup($plugin_name)
+	{	
+	// Add language file
+	register_plugin_language($plugin_name);
+	
+	// Include <plugin>/hooks/all.php case functions are included here
+	$pluginpath=get_plugin_path($plugin_name);
+	$hookpath=$pluginpath . "/hooks/all.php";
+	if (file_exists($hookpath)) {include_once $hookpath;}	
+	
+	// Include plugin configuration
+	include_plugin_config($plugin_name);	
+	return true;
+	}
+
+	

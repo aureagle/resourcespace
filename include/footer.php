@@ -363,7 +363,7 @@ if (!hook("replacecdivrender"))
 
 		<script type="text/javascript">
 			var collection_frame_height=<?php echo $collection_frame_height?>;
-			var thumbs="<?php echo htmlspecialchars($thumbs); ?>";
+			var thumbs="<?php echo htmlspecialchars($thumbs); ?>";									
 			function ShowThumbs() {
 				myLayout.sizePane("south", collection_frame_height);
 				jQuery('.ui-layout-south').animate({scrollTop:0}, 'fast');
@@ -371,6 +371,9 @@ if (!hook("replacecdivrender"))
 				jQuery('#CollectionMaxDiv').show();
 				SetCookie('thumbs',"show",1000);
 				ModalCentre();
+				if(typeof chosenCollection !== 'undefined' && chosenCollection){
+					jQuery('#CollectionMaxDiv select').chosen({disable_search_threshold:chosenCollectionThreshold});
+				}
 			}
 			function HideThumbs() {
 				myLayout.sizePane("south", 40);
@@ -379,6 +382,10 @@ if (!hook("replacecdivrender"))
 				jQuery('#CollectionMaxDiv').hide();
 				SetCookie('thumbs',"hide",1000);
 				ModalCentre();
+				
+				if(typeof chosenCollection !== 'undefined' && chosenCollection){
+					jQuery('#CollectionMinDiv select').chosen({disable_search_threshold:chosenCollectionThreshold});
+				}
 			}
 			function ToggleThumbs() {
 				thumbs = getCookie("thumbs");
@@ -389,12 +396,18 @@ if (!hook("replacecdivrender"))
 				}
 			}
 			function InitThumbs() {
+				<?php if ($collection_bar_hide_empty)
+					{					
+					echo "CheckHideCollectionBar();";
+					}
+					?>
 				if(thumbs!="hide") {
 					ShowThumbs();
 				} else if(thumbs=="hide") {
 					HideThumbs();
 				}
 			}
+			
 			myLayout=jQuery('body').layout({
 				//closable:false,
 				resizable:true,
@@ -407,7 +420,7 @@ if (!hook("replacecdivrender"))
 				togglerTip_open: '<?php echo $lang["toggle"]?>',
 				resizerTip: '<?php echo $lang["resize"]?>',
 				south__onclose_start: function(pane){
-					if (pane=="south"){
+					if (pane=="south" && (typeof colbarresizeon === "undefined" || colbarresizeon==true)){
 						if(jQuery('.ui-layout-south').height()>40 && thumbs!="hide"){
 							HideThumbs();
 						} else if(jQuery('.ui-layout-south').height()<=40 && thumbs=="hide"){
@@ -418,10 +431,10 @@ if (!hook("replacecdivrender"))
 				ModalCentre();
 				},
 				south__onresize: function(pane){
-					if (pane=="south"){
+					if (pane=="south" && (typeof colbarresizeon === "undefined" || colbarresizeon==true)){
 						thumbs = getCookie("thumbs");
 						if(jQuery('.ui-layout-south').height() < collection_frame_height && thumbs!="hide"){
-							HideThumbs();
+						HideThumbs();
 						} else if(jQuery('.ui-layout-south').height()> 40 && thumbs=="hide"){
 							ShowThumbs();
 						}
@@ -469,16 +482,15 @@ try{
 
 <?php if ($chosen_dropdowns) { ?>
 <!-- Chosen support -->
-<script src="<?php echo $baseurl_short ?>lib/chosen/chosen.jquery.min.js" type="text/javascript"></script>
-<link rel="stylesheet" href="<?php echo $baseurl_short ?>lib/chosen/chosen.min.css">
 <script type="text/javascript">
-  var chosen_config = {
-    "#CentralSpace select"           : {disable_search_threshold:10},
-    "#SearchBox select"           : {disable_search_threshold:10}
-  }
-  for (var selector in chosen_config) {
-    jQuery(selector).chosen(chosen_config[selector]);
-  }
+  jQuery(document).ready(function(){
+	  for (var selector in chosen_config) {
+	  	console.log("selector="+selector);
+		jQuery(selector).each(function(){
+			ChosenDropdownInit(this, selector);
+		});
+	  }
+  });
 </script>
 <!-- End of chosen support -->
 <?php } ?>

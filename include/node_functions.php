@@ -198,18 +198,37 @@ function get_node($ref, array &$returned_node)
 * Get all nodes from database for a specific metadata field or parent.
 * Use $parent = NULL and recursive = TRUE to get all nodes for a field
 * 
+* Use $offset and $rows only when returning a subset.
+* 
 * @param  integer  $resource_type_field    ID of the metadata field
 * @param  integer  $parent                 ID of parent node
-* @param  integer  $recursive              Set to true to get children nodes as well
+* @param  boolean  $recursive              Set to true to get children nodes as well
+* @param  integer  $offset                 Specifies the offset of the first row to return
+* @param  integer  $rows                   Specifies the maximum number of rows to return
+* 
 * @return array
 */
-function get_nodes($resource_type_field, $parent = NULL, $recursive = FALSE)
+function get_nodes($resource_type_field, $parent = NULL, $recursive = FALSE, $offset = NULL, $rows = NULL)
     {
     $return_nodes = array();
 
-    $query = sprintf('SELECT * FROM node WHERE resource_type_field = \'%s\' AND %s ORDER BY order_by ASC;',
+    // Check if limiting is required
+    $limit = '';
+
+    if(!is_null($offset) && is_int($offset))
+        {
+        $limit = "LIMIT {$offset}";
+        }
+
+    if('' != $limit && !is_null($rows) && is_int($rows))
+        {
+        $limit .= ",{$rows}";
+        }
+
+    $query = sprintf('SELECT * FROM node WHERE resource_type_field = \'%s\' AND %s ORDER BY order_by ASC %s',
         escape_check($resource_type_field),
-        (trim($parent)=="") ? 'parent IS NULL' : "parent = '" . escape_check($parent) . "'"
+        (trim($parent)=="") ? 'parent IS NULL' : "parent = '" . escape_check($parent) . "'",
+        $limit
     );
     $nodes = sql_query($query);
 
@@ -992,4 +1011,52 @@ function copy_resource_type_field_nodes($from, $to)
         }
 
     return true;
+    }
+
+
+/**
+* Get parent nodes
+* 
+* @param integer $noderef  Node ID
+* 
+* @return array
+*/
+function get_parent_nodes($noderef)
+    {
+    $parent_nodes = array();
+    $topnode      = false;
+
+    do
+        {
+        $node = sql_query("SELECT n.parent, pn.name FROM node n JOIN node pn ON pn.ref = n.parent WHERE n.ref = '{$noderef}'");
+
+        if(empty($node[0]['parent']))
+            {  
+            $topnode = true;
+            }
+        else
+            {
+            $parent_nodes[$node[0]['parent']] = $node[0]['name'];
+            $noderef                          = $node[0]['parent'];
+            }
+        }
+    while (!$topnode);
+
+    return $parent_nodes;
+    }
+
+
+
+/**
+* Get the total number of nodes for a specific field
+* 
+* @param integer $resource_type_field ID of the metadata field
+* 
+* @return integer
+*/
+function get_nodes_count($resource_type_field)
+    {
+    $resource_type_field = escape_check($resource_type_field);
+
+    return (int) sql_value("SELECT count(ref) AS `value` FROM node WHERE resource_type_field = '{$resource_type_field}'", 0);
     }

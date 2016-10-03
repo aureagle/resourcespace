@@ -123,7 +123,7 @@ $lang["property-order_by"]="Order by";
 $lang["property-indexing"]="<b>Indexing</b>";
 $lang["information-if_you_enable_indexing_below_and_the_field_already_contains_data-you_will_need_to_reindex_this_field"]="If you enable indexing below and the field already contains data, you will need to <a target=_blank href=../tools/reindex_field.php?field=%ref>reindex this field</a>"; # %ref will be replaced with the field id
 $lang["property-index_this_field"]="Index this field";
-$lang["information-enable_partial_indexing"]="Partial keyword indexing (prefix+infix indexing) should be used sparingly as it will significantly increase the index size. See the wiki for details.";
+$lang["information-enable_partial_indexing"]="Partial keyword indexing (prefix+infix indexing) should be used sparingly as it will significantly increase the index size. See the Knowledge Base for details.";
 $lang["property-enable_partial_indexing"]="Enable partial indexing";
 $lang["information-shorthand_name"]="Important: Shorthand name must be set for the field to be appear on the search bar, in Advanced search or to be used in search/edit filters. It must contain only lowercase alphabetical characters - no spaces, numbers or symbols.";
 $lang["property-shorthand_name"]="Shorthand name";
@@ -754,6 +754,7 @@ $lang["action-download"]="Download";
 $lang["action-email"]="E-mail";
 $lang["action-edit"]="Edit";
 $lang["action-delete"]="Delete";
+$lang["action-deletechecked"]="Delete checked";
 $lang["action-deletecollection"]="Delete collection";
 $lang["action-revertmetadata"]="Revert metadata";
 $lang["confirm-revertmetadata"]="Are you sure you want to re-extract the original metadata from this file? This action will simulate a re-upload of the file, and you will lose any altered metadata.";
@@ -898,6 +899,7 @@ $lang["notapprovedsharetheme"]="Sharing is prohibited for at least one collectio
 $lang["notapprovedresources"]="The following resources are not active and cannot be added to a shared collection: ";
 $lang['error_generating_access_key'] = 'Could not generate an access key';
 $lang['access_key_deleted'] = "Access key '%access_key' deleted";
+$lang['email_error_user_list_not_valid'] = 'No valid emails to send to (users might not be approved)';
 
 
 # New for 1.3
@@ -1089,7 +1091,7 @@ $lang["setup-successheader"]="Congratulations!";
 $lang["setup-successdetails"]="Your initial ResourceSpace setup is complete.  Be sure to check out 'include/default.config.php' for more configuration options.";
 $lang["setup-successnextsteps"]="Next steps:";
 $lang["setup-successremovewrite"]="You can now remove write access to 'include/'.";
-$lang["setup-visitwiki"]='Visit the <a target="_blank" href="http://wiki.resourcespace.org/index.php/?title=Main_Page">ResourceSpace Documentation Wiki</a> for more information about customizing your installation.';
+$lang["setup-visitwiki"]='Visit the <a target="_blank" href="http://www.resourcespace.com/knowledge-base/">ResourceSpace Knowledge Base</a> for more information about customizing your installation.';
 $lang["php-config-file"]="PHP config: '%phpinifile'"; # %phpinifile will be replaced, e.g. PHP config: '/etc/php5/apache2/php.ini'
 $lang["setup-checkconfigwrite"]="Write access to config directory:";
 $lang["setup-checkstoragewrite"]="Write access to storage directory:";
@@ -1191,7 +1193,8 @@ $lang["setup-login_to"]="Login to";
 $lang["setup-configuration_file_output"]="Configuration file output";
 $lang["more-information"]="More information";
 $lang["setup-structuralplugins"]="System templates";
-$lang["setup-headercolourstyleoverride"]="Custom header colour";
+$lang["setup-headercolourstyleoverride"]="Custom header background colour";
+$lang["setup-headerlinkstyleoverride"]="Custom header link colour";
 
 # Collection log - actions
 $lang["collectionlog"]="Collection log";
@@ -1873,8 +1876,11 @@ $lang["report-send-all-users"]="Send the report to all active users?";
 $lang["contactsheet-single"]="1 per page";
 $lang["contact_sheet-include_header_option"]="Include header?";
 $lang["contact_sheet-add_link_option"]="Add clickable links to resource view page?";
+$lang['contact_sheet_select_fields'] = 'Select metadata fields to display on contact sheet';
 $lang["contact_sheet-add_logo_option"]="Add logo to top of each page?";
 $lang["contact_sheet-single_select_size"]="Image quality";
+$lang['contact_sheet_footer_address'] = 'XXX MAIN STREET, CITY, ABC 123 - TEL: (111) 000-8888 - FAX: (000) 111-9999';
+$lang['contact_sheet_footer_copyright'] = '&#0169; ResourceSpace. All Rights Reserved.';
 
 $lang["caps-lock-on"]="Warning! Caps Lock is on";
 $lang["collectionnames"]="Collection names";
@@ -2013,7 +2019,7 @@ $lang["fieldhelp-permissions_filter"]="You may enter a single permission or comm
 $lang['page-title_user_group_management_edit'] = "Edit user group";
 $lang['page-subtitle_user_group_management_edit'] = "Use this section to modify user group properties.";
 $lang["action-title_remove_user_group_logo"]="Tick to remove user group logo";
-$lang["action-title_see_wiki_for_advanced_options"]="Please refer to the <a href='http://wiki.resourcespace.org/index.php?title=Main_Page#System_Administrator.27s_Guide'>WIKI</a> for further help with Advanced options.";
+$lang["action-title_see_wiki_for_advanced_options"]="Please refer to the <a href='http://www.resourcespace.com/knowledge-base/'>Knowledge Base</a> for further help with Advanced options.";
 
 # admin web edit
 $lang['page-title_web_edit'] = "Edit file";
@@ -2145,7 +2151,7 @@ $lang["download_progress__introtext"]="Your download will start shortly. When yo
 $lang["downloadfile_nofile"]="The file requested was not found.";
 $lang["edit__batch"]="";
 $lang["edit__multiple"]="Please select which fields you wish to overwrite. Fields you do not select will be left untouched.";
-$lang["help__introtext"]='<iframe src="http://www.resourcespace.org/knowledge-base/?from_rs=true" style="width:1235px;height:600px;border:none;margin:-20px;"/>
+$lang["help__introtext"]='<iframe src="https://resourcespace.montala.com/knowledge-base/?from_rs=true" style="width:1235px;height:600px;border:none;margin:-20px;"/>
 ';
 $lang["home__help"]="Help and advice to get the most out of ResourceSpace.";
 $lang["home__mycollections"]="Organise, collaborate & share your resources. Use these tools to help you work more effectively.";
@@ -2423,6 +2429,9 @@ $lang["mysql_throughput"]="MySQL throughput";
 $lang["cpu_benchmark"]="CPU benchmark";
 $lang["disk_write_speed"]="Disk write speed";
 $lang["metadata_option_change_warning"]="Please note that at present, updating these options will not automatically alter stored parameters. Batch editing must be used to migrate existing stored values.";
+$lang['metadata_first_option_is_default']='The first option will be used as the default option for this field. To set the default option on all resources currently missing a value for this field use the link below.';
+$lang['metadata_populate_default_node_for_empty_values']='Populate default option';
+
 /* Manage slideshows */
 $lang["manage_slideshow"] = "Manage slideshow";
 $lang["action-add-new"] = "Add new";
@@ -2458,6 +2467,7 @@ $lang["download_file_created"] = "Your file is ready for download.";
 $lang["download_file_creation_failed"] = "Your file download request failed.";
 $lang["replace_resource_preserve_original"]="Keep the existing file as an alternative?";
 $lang["replace_resource_original_description"]= "Original %EXTENSION file"; // %EXTENSION  will be relaced by originl file extension
+$lang['replace_resource_original_alt_filename'] = 'Alternative filename';
 
 /* Manage external shares */
 $lang['permission_manage_external_shares'] = 'Can manage external shares with expiry set to "Never"';
@@ -2502,3 +2512,16 @@ $lang["report_external_option1"]="...are combined with the user group of the sha
 $lang["report_external_option2"]="...are reported as a separate user group";
 $lang["report_external_share"]="External share";
 $lang["report_add_to_dash"]="Add to dash";
+$lang["collection_restype_blocked"]="The following resource types cannot be added";
+
+$lang["retina_mode"]="Retina mode";
+
+$lang["private-api-key"]="Private API key";
+$lang["can_edit_resource_type"] = "Edit access to resource type: ";
+
+$lang["userpreference_headersize"]="Header size";
+$lang["headersmall"]="Small";
+$lang["headermid"]="Medium";
+$lang["headerlarge"]="Large";
+
+

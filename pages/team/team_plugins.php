@@ -105,20 +105,21 @@ elseif ($enable_plugin_upload && isset($_REQUEST['submit']))
                   $rej_reason = $lang['plugins-rejmetadata'];
                   }
                if (!$rejected)
-                  {
-                  # Uploaded plugins live in the filestore folder.
-                  if (!(is_array(PclTarExtract($tmp_file, $storagedir . "/plugins/"))))
-                     {
-                     #TODO: If the new plugin is already activated we should update the DB with the new yaml info.
-                     $rejected = true;
-                     $rej_reason = $lang['plugins-rejarchprob'].' '.PclErrorString(PclErrorCode());
-                     }
-                  else
-                     {
-                     activate_plugin($u_plugin_name);
-                     redirect($baseurl_short.'pages/team/team_plugins.php');
-                     }
-                  }
+		  {
+                  # Uploaded plugins live in the filestore folder.		  
+		  $phar = new PharData($tmp_file);
+                  try {
+		      $phar->extractTo($storagedir . "/plugins/", null, true);
+		      activate_plugin($u_plugin_name);
+                      redirect($baseurl_short.'pages/team/team_plugins.php');
+		      }
+		  catch (Exception $e) 
+			{
+			$rejected = true;
+                        $rej_reason = $lang['plugins-rejarchprob'];
+			}
+		  }
+                  
                }
             }
          else 
@@ -302,19 +303,12 @@ if (count($inst_plugins)>0)
             echo '<a onClick="return CentralSpaceLoad(this,true);" class="nowrap" href="'.$baseurl_short.'pages/team/team_plugins_groups.php?plugin=' . urlencode($p['name']) . '">' . LINK_CARET . $lang['groupaccess'].'</a> ';
             $p['enabled_groups'] = array($p['enabled_groups']);
             if ($p['config_url']!='')        
-               {
-               if(($p['enabled_groups'][0]=='' ||  in_array($userdata[0]['usergroup'],explode(",",$p['enabled_groups'][0]))))
-                  {
-                  echo '<a onClick="return CentralSpaceLoad(this,true);" class="nowrap" href="'.$baseurl.$p['config_url'].'">' . LINK_CARET .$lang['options'].'</a> ';        
-                  if (sql_value("SELECT config_json as value from plugins where name='".$p['name']."'",'')!='' && function_exists('json_decode'))
+               {               
+               echo '<a onClick="return CentralSpaceLoad(this,true);" class="nowrap" href="'.$baseurl.$p['config_url'].'">' . LINK_CARET .$lang['options'].'</a> ';        
+               if (sql_value("SELECT config_json as value from plugins where name='".$p['name']."'",'')!='' && function_exists('json_decode'))
                      {
                      echo '<a class="nowrap" href="'.$baseurl_short.'pages/team/team_download_plugin_config.php?pin='.$p['name'].'">' . LINK_CARET .$lang['plugins-download'].'</a> ';
                      }
-                  }
-               else
-                  {
-                  echo LINK_CARET . '<span class="nowrap" style="text-decoration: line-through;cursor:not-allowed;">'.$lang['options'].'</span> '; 
-                  }
                }
             echo '</div></td></tr>';
             } 

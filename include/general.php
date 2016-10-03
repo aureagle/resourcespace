@@ -154,7 +154,6 @@ function get_resource_path($ref,$getfilepath,$size,$generate=true,$extension="jp
 			$file .= "?v=" . urlencode($file_modified);
 			}
 		}
-	debug("BANG " . $file);
 	return  $file;
 	}
 	
@@ -955,6 +954,11 @@ function get_user_by_email($email)
     return $return;
 }
 
+function get_user_by_username($username)
+    {
+    return sql_value("select ref value from user where username='" . escape_check($username) . "'",false);
+    }
+
 function get_usergroups($usepermissions = false, $find = '', $id_name_pair_array = false)
 {
     # Returns a list of user groups. The standard user groups are translated using $lang. Custom user groups are i18n translated.
@@ -1055,20 +1059,22 @@ function save_user($ref)
     {
     global $lang, $allow_password_email, $home_dash;
 
-    # Save user details, data is taken from the submitted form.
-    if(getval('deleteme', '') != '')
+    $current_user_data = get_user($ref);
+
+    // Save user details, data is taken from the submitted form.
+    if('' != getval('deleteme', ''))
         {
-        sql_query("DELETE FROM user WHERE ref='$ref'");
+        sql_query("DELETE FROM user WHERE ref = '{$ref}'");
+
         include dirname(__FILE__) ."/dash_functions.php";
         empty_user_dash($ref);
-        log_activity(null, LOG_CODE_DELETED, null, 'user', null, $ref);
+
+        log_activity("{$current_user_data['username']} ({$ref})", LOG_CODE_DELETED, null, 'user', null, $ref);
 
         return true;
         }
     else
         {
-        $current_user_data = get_user($ref);
-
         // Get submitted values
         $username               = trim(getvalescaped('username', ''));
         $password               = trim(getvalescaped('password', ''));
@@ -1079,8 +1085,7 @@ function save_user($ref)
         $ip_restrict            = trim(getvalescaped('ip_restrict', ''));
         $search_filter_override = trim(getvalescaped('search_filter_override', ''));
         $comments               = trim(getvalescaped('comments', ''));
-
-        $suggest = getval('suggest', '');
+        $suggest                = getval('suggest', '');
 
         # Username or e-mail address already exists?
         $c = sql_value("SELECT count(*) value FROM user WHERE ref <> '$ref' AND (username = '" . $username . "' OR email = '" . $email . "')", 0);
@@ -1124,6 +1129,13 @@ function save_user($ref)
         if('' == $fullname && '' == $suggest)
             {
             return $lang['setup-admin_fullname_error'];
+            }
+
+        /*Make sure IP restrict filter is a proper IP, otherwise make it blank
+        Note: we do this check only when wildcards are not used*/
+        if(false === strpos($ip_restrict, '*'))
+            {
+            $ip_restrict = (false === filter_var($ip_restrict, FILTER_VALIDATE_IP) ? '' : $ip_restrict);
             }
 
         $additional_sql = hook('additionaluserfieldssave');
@@ -1195,7 +1207,7 @@ function email_user_welcome($email,$username,$password,$usergroup)
 	$welcome=sql_value("select welcome_message value from usergroup where ref='" . $usergroup . "'","");
 	if (trim($welcome)!="") {$welcome.="\n\n";}
 	
-	$templatevars['welcome']=$welcome;
+	$templatevars['welcome']=i18n_get_translated($welcome);
 	$templatevars['username']=$username;
 	
         $templatevars['password']=$password;
@@ -1275,7 +1287,7 @@ function email_reset_link($email,$newuser=false)
             $welcome .= "\n\n";
             }
 
-        $templatevars['welcome']=$welcome;
+        $templatevars['welcome']=i18n_get_translated($welcome);
 
         $message = $templatevars['welcome'] . $lang["newlogindetails"] . "\n\n" . $baseurl . "\n\n" . $lang["username"] . ": " . $templatevars['username'] . "\n\n" .  $lang["passwordnewemail"] . "\n" . $templatevars['url'];
         send_mail($email,$applicationname . ": " . $lang["newlogindetails"],$message,"","","passwordnewemailhtml",$templatevars);
@@ -1467,41 +1479,59 @@ function auto_create_user_account()
 	}
 } //end function replace hook
 
+
+/**
+* Email user request to admins
+* 
+* @return boolean
+*/
 function email_user_request()
-	{
-	# E-mails the submitted user request form to the team.
-	global $applicationname,$user_email,$baseurl,$email_notify,$lang,$customContents;
+    {
+    // E-mails the submitted user request form to the team.
+    global $applicationname, $user_email, $baseurl, $email_notify, $lang, $customContents;
 
-	# Build a message
+    // Get posted vars sanitized:
+    $name               = strip_tags(getvalescaped('name', ''));
+    $email              = strip_tags(getvalescaped('email', ''));
+    $userrequestcomment = strip_tags(getvalescaped('userrequestcomment', ''));
 
-	$message=$lang["userrequestnotification1"] . "\n\n" . $lang["name"] . ": " . getval("name","") . "\n\n" . $lang["email"] . ": " . getval("email","") . "\n\n" . $lang["comment"] . ": " . getval("userrequestcomment","") . "\n\n" . $lang["ipaddress"] . ": '" . $_SERVER["REMOTE_ADDR"] . "'\n\n" . $customContents . "\n\n" . $lang["userrequestnotification2"] . "\n$baseurl";
-	
-	$notificationmessage=$lang["userrequestnotification1"] . "\n" . $lang["name"] . ": " . getvalescaped("name","") . "\n" . $lang["email"] . ": " . getvalescaped("email","") . "\n" . $lang["comment"] . ": " . getvalescaped("userrequestcomment","") . "\n" . $lang["ipaddress"] . ": '" . $_SERVER["REMOTE_ADDR"] . "'\n" . escape_check($customContents) . "\n";
-	
-	$approval_notify_users=get_notification_users("USER_ADMIN"); 
-	$message_users=array();
-	foreach($approval_notify_users as $approval_notify_user)
-			{
-			get_config_option($approval_notify_user['ref'],'user_pref_user_management_notifications', $send_message);		  
-            if($send_message==false){continue;}		
-			
-			get_config_option($approval_notify_user['ref'],'email_user_notifications', $send_email);    
-			if($send_email && $approval_notify_user["email"]!="")
-				{
-				send_mail($approval_notify_user["email"],$applicationname . ": " . $lang["requestuserlogin"] . " - " . getval("name",""),$message,"",$user_email,"","",getval("name",""));
-				}        
-			else
-				{
-				$message_users[]=$approval_notify_user["ref"];
-				}
-			}
-		if (count($message_users)>0)
-			{
-			// Send a message with long timeout (30 days)
-            message_add($message_users,$notificationmessage,"",0,MESSAGE_ENUM_NOTIFICATION_TYPE_SCREEN,60 * 60 *24 * 30);
-			}
-	return true;
-	}
+    // Build a message
+    $message             = "{$lang['userrequestnotification1']}\n\n{$lang['name']}: {$name}\n\n{$lang['email']}: {$email}\n\n{$lang['comment']}: {$userrequestcomment}\n\n{$lang['ipaddress']}: '{$_SERVER['REMOTE_ADDR']}'\n\n{$customContents}\n\n{$lang['userrequestnotification2']}\n{$baseurl}";
+    $notificationmessage = $lang["userrequestnotification1"] . "\n" . $lang["name"] . ": " . $name . "\n" . $lang["email"] . ": " . $email . "\n" . $lang["comment"] . ": " . $userrequestcomment . "\n" . $lang["ipaddress"] . ": '" . $_SERVER["REMOTE_ADDR"] . "'\n" . escape_check($customContents) . "\n";
+
+    $approval_notify_users = get_notification_users("USER_ADMIN"); 
+    $message_users         = array();
+
+    foreach($approval_notify_users as $approval_notify_user)
+        {
+        get_config_option($approval_notify_user['ref'],'user_pref_user_management_notifications', $send_message);		  
+
+        if(false == $send_message)
+            {
+            continue;
+            }		
+
+        get_config_option($approval_notify_user['ref'],'email_user_notifications', $send_email);
+
+        if($send_email && $approval_notify_user["email"]!="")
+            {
+            send_mail($approval_notify_user['email'], "{$applicationname}: {$lang['requestuserlogin']} - {$name}", $message, '', $user_email, '', '', $name);
+            }
+        else
+            {
+            $message_users[] = $approval_notify_user['ref'];
+            }
+        }
+
+    if(0 < count($message_users))
+        {
+        // Send a message with long timeout (30 days)
+        message_add($message_users,$notificationmessage,"",0,MESSAGE_ENUM_NOTIFICATION_TYPE_SCREEN,60 * 60 *24 * 30);
+        }
+
+    return true;
+    }
+
 
 function new_user($newuser)
 	{
@@ -1567,7 +1597,7 @@ function get_active_users()
         }
     
     # Returns a list of all active users, i.e. users still logged on with a last-active time within the last 2 hours.
-    return sql_query("select u.username,round((unix_timestamp(now())-unix_timestamp(u.last_active))/60,0) t from user u left outer join usergroup g on u.usergroup=g.ref $sql order by t;");
+    return sql_query("select u.ref, u.username,round((unix_timestamp(now())-unix_timestamp(u.last_active))/60,0) t from user u left outer join usergroup g on u.usergroup=g.ref $sql order by t;");
     }
 
 function get_all_site_text($findpage="",$findname="",$findtext="")
@@ -1585,6 +1615,7 @@ function get_all_site_text($findpage="",$findname="",$findtext="")
             {
             # When searching text, search all languages to pick up matches for languages other than the default. Add array so that default is first then we can skip adding duplicates.
 			$search_languages=array($defaultlanguage);
+            if($defaultlanguage!="en"){$search_languages[]="en";}
 			$search_languages = $search_languages + array_keys($languages);	
 			}
         else
@@ -2001,15 +2032,21 @@ function bulk_mail($userlist,$subject,$text,$html=false,$message_type=MESSAGE_EN
 	
 	if ($message_type==MESSAGE_ENUM_NOTIFICATION_TYPE_EMAIL || $message_type==(MESSAGE_ENUM_NOTIFICATION_TYPE_EMAIL | MESSAGE_ENUM_NOTIFICATION_TYPE_SCREEN))
 		{
-		$emails=resolve_user_emails($ulist);
-		$emails=$emails['emails'];
+		$emails = resolve_user_emails($ulist);
+
+        if(0 === count($emails))
+            {
+            return $lang['email_error_user_list_not_valid'];
+            }
+
+		$emails = $emails['emails'];
 
 		# Send an e-mail to each resolved user
-		for ($n=0;$n<count($emails);$n++)
+		foreach($emails as $email)
 			{
-			if ($emails[$n]!="")
+			if('' != $email)
 				{
-				send_mail($emails[$n],$subject,$body,$applicationname,$email_from,"emailbulk",$templatevars,$applicationname,"",$html);
+				send_mail($email,$subject,$body,$applicationname,$email_from,"emailbulk",$templatevars,$applicationname,"",$html);
 				}
 			}
 		}
@@ -2573,6 +2610,13 @@ define('STR_HIGHLIGHT_STRIPLINKS', 8);
 
 function str_highlight($text, $needle, $options = null, $highlight = null)
 	{
+    /*
+    Sometimes the text can contain HTML entities and can break the hilghlighting feature
+    Example: searching for "q&a" in a string like "q&amp;a" will highlight the wrong string
+    */
+    $text = htmlspecialchars_decode($text);
+
+
 	# Thanks to Aidan Lister <aidan@php.net>
 	# Sourced from http://aidanlister.com/repos/v/function.str_highlight.php on 2007-10-09
 	# License on the website reads: "All code on this website resides in the Public Domain, you are free to use and modify it however you wish."
@@ -2653,7 +2697,7 @@ function pager($break=true)
 	$jumpcount++;
 	if(!hook("replace_pager")){
 		if ($totalpages!=0 && $totalpages!=1){?>     
-			<span class="TopInpageNavRight"><?php if ($break) { ?>&nbsp;<br /><?php } hook("custompagerstyle"); if ($curpage>1) { ?><a class="prevPageLink" title="<?php echo $lang["previous"]?>" href="<?php echo $url?>&amp;go=prev&amp;offset=<?php echo urlencode($offset-$per_page) ?>" <?php if(!hook("replacepageronclick_prev")){?>onClick="return <?php echo $modal ? 'Modal' : 'CentralSpace'; ?>Load(this, true);" <?php } ?>><?php } ?><i class="fa fa-arrow-left"></i><?php if ($curpage>1) { ?></a><?php } ?>&nbsp;&nbsp;
+			<span class="TopInpageNavRight"><?php if ($break) { ?>&nbsp;<br /><?php } hook("custompagerstyle"); if ($curpage>1) { ?><a class="prevPageLink" title="<?php echo $lang["previous"]?>" href="<?php echo $url?>&amp;go=prev&amp;offset=<?php echo urlencode($offset-$per_page) ?>" <?php if(!hook("replacepageronclick_prev")){?>onClick="return <?php echo $modal ? 'Modal' : 'CentralSpace'; ?>Load(this, true);" <?php } ?>><?php } ?><i aria-hidden="true" class="fa fa-arrow-left"></i><?php if ($curpage>1) { ?></a><?php } ?>&nbsp;&nbsp;
 
 			<?php if ($pager_dropdown){
 				$id=rand();?>
@@ -2665,12 +2709,12 @@ function pager($break=true)
 			<?php } else { ?>
 
 				<div class="JumpPanel" id="jumppanel<?php echo $jumpcount?>" style="display:none;"><?php echo $lang["jumptopage"]?>: <input type="text" size="1" id="jumpto<?php echo $jumpcount?>" onkeydown="var evt = event || window.event;if (evt.keyCode == 13) {var jumpto=document.getElementById('jumpto<?php echo $jumpcount?>').value;if (jumpto<1){jumpto=1;};if (jumpto><?php echo $totalpages?>){jumpto=<?php echo $totalpages?>;};<?php echo $modal ? 'Modal' : 'CentralSpace'; ?>Load('<?php echo $url?>&amp;go=page&amp;offset=' + ((jumpto-1) * <?php echo urlencode($per_page) ?>), true);}">
-			&nbsp;<a class="fa fa-times-circle" href="#" onClick="document.getElementById('jumppanel<?php echo $jumpcount?>').style.display='none';document.getElementById('jumplink<?php echo $jumpcount?>').style.display='inline';"></a></div>
+			&nbsp;<a aria-hidden="true" class="fa fa-times-circle" href="#" onClick="document.getElementById('jumppanel<?php echo $jumpcount?>').style.display='none';document.getElementById('jumplink<?php echo $jumpcount?>').style.display='inline';"></a></div>
 			
 				<a href="#" id="jumplink<?php echo $jumpcount?>" title="<?php echo $lang["jumptopage"]?>" onClick="document.getElementById('jumppanel<?php echo $jumpcount?>').style.display='inline';document.getElementById('jumplink<?php echo $jumpcount?>').style.display='none';document.getElementById('jumpto<?php echo $jumpcount?>').focus(); return false;"><?php echo $lang["page"]?>&nbsp;<?php echo htmlspecialchars($curpage) ?>&nbsp;<?php echo $lang["of"]?>&nbsp;<?php echo $totalpages?></a>
 			<?php } ?>
 
-			&nbsp;&nbsp;<?php if ($curpage<$totalpages) { ?><a class="nextPageLink" title="<?php echo $lang["next"]?>" href="<?php echo $url?>&amp;go=next&amp;offset=<?php echo urlencode($offset+$per_page) ?>" <?php if(!hook("replacepageronclick_next")){?>onClick="return <?php echo $modal ? 'Modal' : 'CentralSpace'; ?>Load(this, true);" <?php } ?>><?php } ?><i class="fa fa-arrow-right"></i><?php if ($curpage<$totalpages) { ?></a><?php } hook("custompagerstyleend"); ?>
+			&nbsp;&nbsp;<?php if ($curpage<$totalpages) { ?><a class="nextPageLink" title="<?php echo $lang["next"]?>" href="<?php echo $url?>&amp;go=next&amp;offset=<?php echo urlencode($offset+$per_page) ?>" <?php if(!hook("replacepageronclick_next")){?>onClick="return <?php echo $modal ? 'Modal' : 'CentralSpace'; ?>Load(this, true);" <?php } ?>><?php } ?><i aria-hidden="true" class="fa fa-arrow-right"></i><?php if ($curpage<$totalpages) { ?></a><?php } hook("custompagerstyleend"); ?>
 			</span>
 			
 		<?php } else { ?><span class="HorizontalWhiteNav">&nbsp;</span><div <?php if ($pagename=="search"){?>style="display:block;"<?php } else { ?>style="display:inline;"<?php }?>>&nbsp;</div><?php } ?>
@@ -2774,7 +2818,7 @@ function resolve_userlist_groups($userlist)
 				}
 
 			# Find and add the users.
-			$users = sql_array("select username value from user where usergroup='$groupref'");
+			$users = sql_array("SELECT username AS `value` FROM user WHERE usergroup = '{$groupref}'");
 			if ($newlist!="") {$newlist.=",";}
 			$newlist.=join(",",$users);
 			}
@@ -3309,7 +3353,7 @@ function check_access_key($resource,$key)
 	# Option to plugin in some extra functionality to check keys
 	if (hook("check_access_key","",array($resource,$key))===true) {return true;}
 	global $external_share_view_as_internal, $is_authenticated;
-    	if($external_share_view_as_internal && (isset($_COOKIE["user"]) && !(isset($is_authenticated) && $is_authenticated))){return false;} // We want to authenticate the user if not already authenticated so we can show the page as internal
+    	if($external_share_view_as_internal && (isset($_COOKIE["user"]) && validate_user("session='" . escape_check($_COOKIE["user"]) . "'", false) && !(isset($is_authenticated) && $is_authenticated))){return false;} // We want to authenticate the user if not already authenticated so we can show the page as internal
 	
 	$keys=sql_query("select user,usergroup,expires from external_access_keys where resource='$resource' and access_key='$key' and (expires is null or expires>now())");
 
@@ -3446,10 +3490,10 @@ function check_access_key_collection($collection, $key)
         }
     
     global $external_share_view_as_internal;
-    if($external_share_view_as_internal && isset($_COOKIE["user"]))
+    if($external_share_view_as_internal && isset($_COOKIE["user"]) && validate_user("session='" . escape_check($_COOKIE["user"]) . "'", false))
         {
         // We want to authenticate the user so we can show the page as internal
-        return false;
+		return false;
         }
 
     $resources = get_collection_resources($collection);
@@ -3985,46 +4029,47 @@ function user_email_exists($email)
 	}
 
 function filesize_unlimited($path)
-    { 
+    {
     # A resolution for PHP's issue with large files and filesize().
-	
-	hook("beforefilesize_unlimited","",array($path));
-	
-    if (PHP_OS=='WINNT')
-        {
-		if (class_exists("COM"))
-			{
-			try
-				{
-				$filesystem=new COM('Scripting.FileSystemObject');
-				$file=$filesystem->GetFile($path);
-				return $file->Size();
-				}
-			catch (com_exception $e)
-				{
-				return false;
-				}
-			}
 
-		return exec('for %I in (' . escapeshellarg($path) . ') do @echo %~zI' );
+    hook("beforefilesize_unlimited","",array($path));
+
+    if('WINNT' == PHP_OS)
+        {
+        if(class_exists('COM'))
+            {
+            try
+                {
+                $filesystem = new COM('Scripting.FileSystemObject');
+                $file       =$filesystem->GetFile($path);
+
+                return $file->Size();
+                }
+            catch(com_exception $e)
+                {
+                return false;
+                }
+            }
+
+        return exec('for %I in (' . escapeshellarg($path) . ') do @echo %~zI' );
         }
-	else if(PHP_OS == 'Darwin') 
-    	{
+    else if('Darwin' == PHP_OS || 'FreeBSD' == PHP_OS)
+        {
         $bytesize = exec("stat -f '%z' " . escapeshellarg($path));
-    	}
+        }
     else 
-    	{
-		$bytesize = exec("stat -c '%s' " . escapeshellarg($path));
-    	}
-    	
-	if(!is_int($bytesize))
-		{
-		$bytesize= @filesize($path); # Bomb out, the output wasn't as we expected. Return the filesize() output.
-		}
-		
-	hook("afterfilesize_unlimited","",array($path));
-	
-	return $bytesize;
+        {
+        $bytesize = exec("stat -c '%s' " . escapeshellarg($path));
+        }
+
+    if(!is_int($bytesize))
+        {
+        $bytesize = @filesize($path); # Bomb out, the output wasn't as we expected. Return the filesize() output.
+        }
+
+    hook('afterfilesize_unlimited', '', array($path));
+
+    return $bytesize;
     }
 
 function strip_leading_comma($val)
@@ -4236,59 +4281,52 @@ function get_temp_dir($asUrl = false,$uniqid="")
  * @return Url that is the relative path.
  */
 function convert_path_to_url($abs_path)
-{
+    {
     // Get the root directory of the app:
     $rootDir = dirname(dirname(__FILE__));
     // Get the baseurl:
     global $baseurl;
     // Replace the $rootDir with $baseurl in the path given:
     return str_ireplace($rootDir, $baseurl, $abs_path);
-}
+    }
 
 function run_command($command, $geterrors=false)
-	{
-	# Works like system(), but returns the complete output string rather than just the
-	# last line of it.
-	global $debug_log,$config_windows;
-	debug("CLI command: $command");
-	if($debug_log || $geterrors) 
-		{
-		if($config_windows===true) 
-			{
-			$process = @proc_open($command, array(1 => array('pipe', 'w'), 2 => array('pipe', 'w')), $pipe, NULL, NULL, array('bypass_shell' => true));
-			}
-		else 
-			{
-			$process = @proc_open($command, array(1 => array('pipe', 'w'), 2 => array('pipe', 'w')), $pipe, NULL, NULL, array('bypass_shell' => true));
-			}
-		}
-	else
-		{
-		$process = @proc_open($command, array(1 => array('pipe', 'w')), $pipe, NULL, NULL, array('bypass_shell' => true));
-		}
+    {
+    # Works like system(), but returns the complete output
+    # string rather than just the last line of it.
+    global $debug_log;
+    debug("CLI command: $command");
 
-	if (is_resource($process)) 
-		{
-		$output = trim(stream_get_contents($pipe[1]));
-	 	if($geterrors)
-			{
-			$output.= trim(stream_get_contents($pipe[2]));
-			}
-		if ($debug_log)
-			{
-			debug("CLI output: $output");
-			debug("CLI errors: ". trim(stream_get_contents($pipe[2])));
-			}
-		return $output;  
-		}
-	return '';
-	}
+    $descriptorspec = array(
+        1 => array("pipe", "w") // stdout is a pipe that the child will write to
+    );
+    if($debug_log || $geterrors) 
+        {
+        $descriptorspec[2] = array("pipe", "w"); // stderr is a file to write to
+        }
+    $process = @proc_open($command, $descriptorspec, $pipe, NULL, NULL, array('bypass_shell' => true));
+
+    if (!is_resource($process)) { return ''; }
+
+    $output = trim(stream_get_contents($pipe[1]));
+    if($geterrors)
+        {
+        $output .= trim(stream_get_contents($pipe[2]));
+        }
+    if ($debug_log)
+        {
+        debug("CLI output: $output");
+        debug("CLI errors: " . trim(stream_get_contents($pipe[2])));
+        }
+    proc_close($process);
+    return $output;
+    }
 
 function run_external($cmd,&$code)
-{
-# Thanks to dk at brightbyte dot de
-# http://php.net/manual/en/function.shell-exec.php
-# Returns an array with the resulting output (stdout & stderr). 
+    {
+    # Thanks to dk at brightbyte dot de
+    # http://php.net/manual/en/function.shell-exec.php
+    # Returns an array with the resulting output (stdout & stderr). 
     debug("CLI command: $cmd");
 
     $descriptorspec = array(
@@ -4589,6 +4627,24 @@ function sql_affected_rows(){
 	}
 }
 
+function get_imagemagick_path($utilityname, $exeNames, &$checked_path)
+{
+    global $imagemagick_path;
+	if (!isset($imagemagick_path))
+		{
+		# ImageMagick convert path not configured.
+		return false;
+		}
+	$path=get_executable_path($imagemagick_path, $exeNames, $checked_path);
+	if ($path===false)
+		{
+		# Support 'magick' also, ie. ImageMagick 7+
+		return get_executable_path($imagemagick_path, array("unix"=>"magick", "win"=>"magick.exe"),
+				$checked_path) . ' ' . $utilityname;
+		}
+	return $path;
+}
+
 function get_utility_path($utilityname, &$checked_path = null)
     {
     # !!! Under development - only some of the utilities are implemented!!!
@@ -4596,28 +4652,20 @@ function get_utility_path($utilityname, &$checked_path = null)
     # Returns the full path to a utility if installed, else returns false.
     # Note that this function doesn't check that the utility is working.
 
-    global $imagemagick_path, $ghostscript_path, $ghostscript_executable, $ffmpeg_path, $exiftool_path, $antiword_path, $pdftotext_path, $blender_path, $archiver_path, $archiver_executable;
+    global $ghostscript_path, $ghostscript_executable, $ffmpeg_path, $exiftool_path, $antiword_path, $pdftotext_path, $blender_path, $archiver_path, $archiver_executable;
 
     $checked_path = null;
 
     switch (strtolower($utilityname))
         {
         case "im-convert":
-            if (!isset($imagemagick_path)) {return false;} # ImageMagick convert path not configured.
-            return get_executable_path($imagemagick_path, array("unix"=>"convert", "win"=>"convert.exe"), $checked_path);
-            break;
+			return get_imagemagick_path('convert', array("unix"=>"convert", "win"=>"convert.exe"), $checked_path);
         case "im-identify":
-            if (!isset($imagemagick_path)) {return false;} # ImageMagick identify path not configured.
-            return get_executable_path($imagemagick_path, array("unix"=>"identify", "win"=>"identify.exe"), $checked_path);
-            break;
+			return get_imagemagick_path('identify', array("unix"=>"identify", "win"=>"identify.exe"), $checked_path);
         case "im-composite":
-            if (!isset($imagemagick_path)) {return false;} # ImageMagick composite path not configured.
-            return get_executable_path($imagemagick_path, array("unix"=>"composite", "win"=>"composite.exe"), $checked_path);
-            break;
+			return get_imagemagick_path('composite', array("unix"=>"composite", "win"=>"composite.exe"), $checked_path);
         case "im-mogrify":
-            if (!isset($imagemagick_path)) {return false;} # ImageMagick mogrify path not configured.
-            return get_executable_path($imagemagick_path, array("unix"=>"mogrify", "win"=>"mogrify.exe"), $checked_path);
-            break;
+			return get_imagemagick_path('mogrify', array("unix"=>"mogrify", "win"=>"mogrify.exe"), $checked_path);
         case "ghostscript":
             if (!isset($ghostscript_path)) {return false;} # Ghostscript path not configured.
             if (!isset($ghostscript_executable)) {return false;} # Ghostscript executable not configured.
@@ -4686,37 +4734,61 @@ function get_executable_path($path, $executable, &$checked_path, $check_exe = fa
     return false; # No path found.
     }
 
-if (!function_exists("resolve_user_emails")){
-function resolve_user_emails($ulist){
-	global $lang, $user_select_internal;
-	// return an array of emails from a list of usernames and email addresses. 
-	// with 'key_required' sibling array preserving the intent of internal/external sharing.
-	$emails_key_required=array();
-	for ($n=0;$n<count($ulist);$n++)
-		{
-		$uname=$ulist[$n];
-		$email=sql_value("select email value from user where username='" . escape_check($uname) . "'",'');
-		if ($email=='')
-			{
-			# Not a recognised user, if @ sign present, assume e-mail address specified
-			if (strpos($uname,"@")===false || (isset($user_select_internal) && $user_select_internal)) {
-				error_alert($lang["couldnotmatchallusernames"] . ": " . escape_check($uname));die();
-			}
-			$emails_key_required['unames'][$n]=$uname;
-			$emails_key_required['emails'][$n]=$uname;
-			$emails_key_required['key_required'][$n]=true;
-			}
-		else
-			{
-			# Add e-mail address from user account
-			$emails_key_required['unames'][$n]=$uname;
-			$emails_key_required['emails'][$n]=$email;
-			$emails_key_required['key_required'][$n]=false;
-			}
-		}
-	return $emails_key_required;
-}	
-}
+
+if(!function_exists('resolve_user_emails'))
+    {
+    /**
+    * Return an array of emails from a list of usernames and email addresses. 
+    * with 'key_required' sibling array preserving the intent of internal/external sharing
+    * 
+    * @param array $user_list
+    * 
+    * @return array
+    */
+    function resolve_user_emails($user_list)
+        {
+        global $lang, $user_select_internal;
+
+        $emails_key_required = array();
+
+        foreach($user_list as $user)
+            {
+            $escaped_username = escape_check($user);
+            $email_details    = sql_query("SELECT email, approved FROM user WHERE username = '{$escaped_username}' AND (account_expires IS NULL OR account_expires > NOW())");
+
+            // Not a recognised user, if @ sign present, assume e-mail address specified
+            if(0 === count($email_details))
+                {
+                if(false === strpos($user, '@') || (isset($user_select_internal) && $user_select_internal))
+                    {
+                    error_alert("{$lang['couldnotmatchallusernames']}: {$escaped_username}");
+                    die();
+                    }
+
+                $emails_key_required['unames'][]       = $user;
+                $emails_key_required['emails'][]       = $user;
+                $emails_key_required['key_required'][] = true;
+
+                continue;
+                }
+
+            // Skip internal, not approved accounts
+            if(0 == $email_details[0]['approved'])
+                {
+                debug('EMAIL: ' . __FUNCTION__ . '() skipping e-mail "' . $email_details[0]['email'] . '" because it belongs to user account which is not approved');
+
+                continue;
+                }
+
+            // Internal, approved user account - add e-mail address from user account
+            $emails_key_required['unames'][]       = $user;
+            $emails_key_required['emails'][]       = $email_details[0]['email'];
+            $emails_key_required['key_required'][] = false;
+            }
+
+        return $emails_key_required;
+        }
+    }
 
 
 function truncate_cache_arrays(){
@@ -5225,7 +5297,7 @@ function get_notification_users($userpermission="SYSTEM_ADMIN")
     if(is_array($email_notify_usergroups) && count($email_notify_usergroups)>0)
 		{
 		// If email_notify_usergroups is set we use these over everything else, as long as they have an email address set
-        $notification_users_cache[$userpermissionindex] = sql_query("select ref, email from user where usergroup in (" . implode(",",$email_notify_usergroups) . ") and email <>''");
+        $notification_users_cache[$userpermissionindex] = sql_query("select ref, email from user where usergroup in (" . implode(",",$email_notify_usergroups) . ") and email <>'' AND approved=1 AND (account_expires IS NULL OR account_expires > NOW())");
         return $notification_users_cache[$userpermissionindex];
 		}
 	
@@ -5236,32 +5308,32 @@ function get_notification_users($userpermission="SYSTEM_ADMIN")
 			{
 			case "USER_ADMIN";
 			// Return all users in groups with u permissions AND either no 'U' restriction, or with 'U' but in appropriate group
-			$notification_users_cache[$userpermissionindex] = sql_query("select u.ref, u.email from usergroup ug join user u on u.usergroup=ug.ref where find_in_set(binary 'u',ug.permissions) <> 0 and u.ref<>''" . (is_int($usergroup)?" and (find_in_set(binary 'U',ug.permissions) = 0 or ug.ref =(select parent from usergroup where ref=" . $usergroup . "))":""));	
+			$notification_users_cache[$userpermissionindex] = sql_query("select u.ref, u.email from usergroup ug join user u on u.usergroup=ug.ref where find_in_set(binary 'u',ug.permissions) <> 0 and u.ref<>'' and u.approved=1 AND (u.account_expires IS NULL OR u.account_expires > NOW())" . (is_int($usergroup)?" and (find_in_set(binary 'U',ug.permissions) = 0 or ug.ref =(select parent from usergroup where ref=" . $usergroup . "))":""));	
 			return $notification_users_cache[$userpermissionindex];
 			break;
 			
 			case "RESOURCE_ACCESS";
 			// Notify users who can grant access to resources, get all users in groups with R permissions
-			$notification_users_cache[$userpermissionindex] = sql_query("select u.ref, u.email from usergroup ug join user u on u.usergroup=ug.ref where find_in_set(binary 'R',ug.permissions) <> 0");	
+			$notification_users_cache[$userpermissionindex] = sql_query("select u.ref, u.email from usergroup ug join user u on u.usergroup=ug.ref where find_in_set(binary 'R',ug.permissions) <> 0 AND u.approved=1 AND (u.account_expires IS NULL OR u.account_expires > NOW())");	
 			return $notification_users_cache[$userpermissionindex];		
 			break;
 			
 			case "RESEARCH_ADMIN";
 			// Notify research admins, get all users in groups with r permissions
-			$notification_users_cache[$userpermissionindex] = sql_query("select u.ref, u.email from usergroup ug join user u on u.usergroup=ug.ref where find_in_set(binary 'r',ug.permissions) <> 0");	
+			$notification_users_cache[$userpermissionindex] = sql_query("select u.ref, u.email from usergroup ug join user u on u.usergroup=ug.ref where find_in_set(binary 'r',ug.permissions) <> 0 AND u.approved=1 AND (u.account_expires IS NULL OR u.account_expires > NOW())");	
 			return $notification_users_cache[$userpermissionindex];		
 			break;
 					
 			case "RESOURCE_ADMIN";
 			// Get all users in groups with t and e0 permissions
-			$notification_users_cache[$userpermissionindex] = sql_query("select u.ref, u.email from usergroup ug join user u on u.usergroup=ug.ref where find_in_set(binary 't',ug.permissions) <> 0 and find_in_set(binary 'e0',ug.permissions)");	
+			$notification_users_cache[$userpermissionindex] = sql_query("select u.ref, u.email from usergroup ug join user u on u.usergroup=ug.ref where find_in_set(binary 't',ug.permissions) <> 0 AND find_in_set(binary 'e0',ug.permissions) and u.approved=1 AND (u.account_expires IS NULL OR u.account_expires > NOW())");	
 			return $notification_users_cache[$userpermissionindex];
 			break;
             
             case "SYSTEM_ADMIN";
 			default;
 			// Get all users in groups with a permission (default if incorrect admin type has been passed)
-			$notification_users_cache[$userpermissionindex] = sql_query("select u.ref, u.email from usergroup ug join user u on u.usergroup=ug.ref where find_in_set(binary 'a',ug.permissions) <> 0");	
+			$notification_users_cache[$userpermissionindex] = sql_query("select u.ref, u.email from usergroup ug join user u on u.usergroup=ug.ref where find_in_set(binary 'a',ug.permissions) <> 0 AND u.approved=1 AND (u.account_expires IS NULL OR u.account_expires > NOW())");	
 			return $notification_users_cache[$userpermissionindex];
 			break;
 		
@@ -5274,7 +5346,7 @@ function get_notification_users($userpermission="SYSTEM_ADMIN")
 		foreach ($userpermission as $permission)
 			{
 			if($condition!=""){$condition.=" and ";}
-			$condition.="find_in_set(binary '" . $permission . "',ug.permissions) <> 0";
+			$condition.="find_in_set(binary '" . $permission . "',ug.permissions) <> 0 AND u.approved=1 AND (u.account_expires IS NULL OR u.account_expires > NOW())";
 			}
 		$notification_users_cache[$userpermissionindex] = sql_query("select u.ref, u.email from usergroup ug join user u on u.usergroup=ug.ref where $condition");	
 		return $notification_users_cache[$userpermissionindex];
@@ -5481,3 +5553,5 @@ function user_set_usergroup($user,$usergroup)
     {
     sql_query("update user set usergroup='" . escape_check($usergroup) . "' where ref='" . escape_check($user) . "'");
     }
+
+

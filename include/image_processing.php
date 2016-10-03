@@ -10,7 +10,7 @@
  */
 
 if (!function_exists("upload_file")){
-function upload_file($ref,$no_exif=false,$revert=false,$autorotate=false)
+function upload_file($ref,$no_exif=false,$revert=false,$autorotate=false,$file_path="")
 	{
 	hook("beforeuploadfile","",array($ref));
 	hook("clearaltfiles", "", array($ref)); // optional: clear alternative files before uploading new resource
@@ -60,11 +60,19 @@ function upload_file($ref,$no_exif=false,$revert=false,$autorotate=false)
 		if (isset($_FILES['userfile'])) {$processfile=$_FILES['userfile'];} # Single upload (at least) needs this
 		elseif (isset($_FILES['Filedata'])) {$processfile=$_FILES['Filedata'];} # Java upload (at least) needs this
 
-		# Plupload needs this
-		if (isset($_REQUEST['name'])) {
-			$filename=$_REQUEST['name'];
+		# Work out the filename.
+		if (isset($_REQUEST['name']))
+			{
+			$filename=$_REQUEST['name']; # For PLupload
 			}
-		else {$filename=$processfile['name'];}
+		elseif ($file_path!="")
+			{
+			$filename=basename($file_path); # The file path was provided
+			}
+		else
+			{
+			$filename=$processfile['name']; # Standard uploads
+			}
 
 		global $filename_field;
 		if($no_exif && isset($filename_field)) {
@@ -79,7 +87,7 @@ function upload_file($ref,$no_exif=false,$revert=false,$autorotate=false)
 					
 				$original_extension = $path_parts['extension'];
 
-				if($original_extension == $user_set_filename_path_parts['extension'])
+				if(isset($user_set_filename_path_parts['extension']) && $original_extension == $user_set_filename_path_parts['extension'])
 					{
 					$filename = $user_set_filename;
 					}
@@ -115,7 +123,6 @@ function upload_file($ref,$no_exif=false,$revert=false,$autorotate=false)
     global $banned_extensions;
     if (in_array($extension,$banned_extensions)) {return false;}
     
-    $status="Please provide a file name.";
     $filepath=get_resource_path($ref,true,"",true,$extension);
 
 	if (!$revert){ 
@@ -147,17 +154,11 @@ function upload_file($ref,$no_exif=false,$revert=false,$autorotate=false)
 	if (!$revert){
     if ($filename!="")
     	{
-    	global $jupload_alternative_upload_location, $plupload_upload_location;
-    	if (isset($plupload_upload_location))
-    		{
-    		# PLUpload - file was sent chunked and reassembled - use the reassembled file location
-			$result=rename($plupload_upload_location, $filepath);
-    		}
-		elseif (isset($jupload_alternative_upload_location))
-    		{
-    		# JUpload - file was sent chunked and reassembled - use the reassembled file location
-		    $result=rename($jupload_alternative_upload_location, $filepath);
-    		}
+	    if ($file_path!="")
+			{
+			# File path has been specified. Let's use that directly.
+			$result=rename($file_path, $filepath);
+			}
 		else
 			{
 			# Standard upload.
@@ -168,7 +169,6 @@ function upload_file($ref,$no_exif=false,$revert=false,$autorotate=false)
 			
     	if ($result==false)
        	 	{
-       	 	$status="File upload error. Please check the size of the file you are trying to upload.";
        	 	return false;
        	 	}
      	else
@@ -190,8 +190,6 @@ function upload_file($ref,$no_exif=false,$revert=false,$autorotate=false)
 			extract_icc_profile($ref,$extension);
 		}
 
-
-		$status="Your file has been uploaded.";
     	 	}
     	}
     }	
@@ -367,7 +365,7 @@ function upload_file($ref,$no_exif=false,$revert=false,$autorotate=false)
 	$log_ref=resource_log($ref,"u",0);
 	hook("upload_image_after_log_write","",array($ref,$log_ref));
 	
-    return $status;
+    return true;
     }}
 
 function extract_exif_comment($ref,$extension="")
@@ -404,7 +402,7 @@ function extract_exif_comment($ref,$extension="")
 		
 			$command = $exiftool_fullpath . " -s -s -s -t -composite:imagesize -xresolution -resolutionunit " . escapeshellarg($image);
 			$dimensions_resolution_unit=explode("\t",run_command($command));
-            resource_log(RESOURCE_LOG_APPEND_PREVIOUS,LOG_CODE_TRANSFORMED,'','','',$command . ":\n" . $dimensions_resolution_unit);
+            resource_log(RESOURCE_LOG_APPEND_PREVIOUS,LOG_CODE_TRANSFORMED,'','','',$command . ":\n" . implode(",",$dimensions_resolution_unit));
 
             # if dimensions resolution and unit could be extracted, add them to the database.
 			# they can be used in view.php to give more accurate data.
@@ -1045,7 +1043,8 @@ function create_previews($ref,$thumbonly=false,$extension="jpg",$previewonly=fal
 		{
 		if (isset($imagemagick_path))
 			{
-			create_previews_using_im($ref,$thumbonly,$extension,$previewonly,$previewbased,$alternative,$ingested);
+			$return_val=create_previews_using_im($ref,$thumbonly,$extension,$previewonly,$previewbased,$alternative,$ingested);
+			return $return_val;
 			}
 		else
 			{
@@ -1143,12 +1142,14 @@ function create_previews($ref,$thumbonly=false,$extension="jpg",$previewonly=fal
       		include(dirname(__FILE__)."/preview_preprocessing.php");
 			}
 		}
+		
+	hook('afterpreviewcreation', '',array($ref, $alternative));
 	return true;
 	}
 
 function create_previews_using_im($ref,$thumbonly=false,$extension="jpg",$previewonly=false,$previewbased=false,$alternative=-1,$ingested=false)
 	{
-	global $keep_for_hpr,$imagemagick_path,$imagemagick_preserve_profiles,$imagemagick_quality,$imagemagick_colorspace,$default_icc_file,$autorotate_no_ingest,$always_make_previews,$lean_preview_generation,$previews_allow_enlarge,$alternative_file_previews;
+	global $keep_for_hpr,$imagemagick_path,$imagemagick_preserve_profiles,$imagemagick_quality,$imagemagick_colorspace,$default_icc_file,$autorotate_no_ingest,$always_make_previews,$lean_preview_generation,$previews_allow_enlarge,$alternative_file_previews, $imagemagick_mpr, $imagemagick_mpr_preserve_profiles, $imagemagick_mpr_preserve_metadata_profiles;
 
 	$icc_transform_complete=false;
 	debug("create_previews_using_im(ref=$ref,thumbonly=$thumbonly,extension=$extension,previewonly=$previewonly,previewbased=$previewbased,alternative=$alternative,ingested=$ingested)",RESOURCE_LOG_APPEND_PREVIOUS);
@@ -1180,20 +1181,21 @@ function create_previews_using_im($ref,$thumbonly=false,$extension="jpg",$previe
 				}
 			if ($autorotate_no_ingest && !$ingested && !$previewonly)
 				{
-					# extra check for !previewonly should there also be ingested resources in the system
-					$file=get_resource_path($ref,true,"",false,$extension,-1,1,false,"",$alternative);
+				# extra check for !previewonly should there also be ingested resources in the system
+				$file=get_resource_path($ref,true,"",false,$extension,-1,1,false,"",$alternative);
 				}
 			}
 		else if (!$previewonly)
 			{
-			$file=get_resource_path($ref,true,"",false,$extension,-1,1,false,"",$alternative);	
+			$file=get_resource_path($ref,true,"",false,$extension,-1,1,false,"",$alternative);
 			}
 		else
 			{
 			# We're generating based on a new preview (scr) image.
 			$file=get_resource_path($ref,true,"tmp",false,"jpg");	
 			}
-
+		$origfile=$file;
+		
 		$hpr_path=get_resource_path($ref,true,"hpr",false,"jpg",-1,1,false,"",$alternative);	
 		if (file_exists($hpr_path) && !$previewbased) {unlink($hpr_path);}	
 		$lpr_path=get_resource_path($ref,true,"lpr",false,"jpg",-1,1,false,"",$alternative);	
@@ -1215,17 +1217,36 @@ function create_previews_using_im($ref,$thumbonly=false,$extension="jpg",$previe
 		$identcommand = $identify_fullpath . ' -format %wx%h '. escapeshellarg($prefix . $file) .'[0]';
 		$identoutput=run_command($identcommand);
         resource_log(RESOURCE_LOG_APPEND_PREVIOUS,LOG_CODE_TRANSFORMED,'','','',$identcommand . ":\n" . $identoutput);
+        
+        if(empty($identoutput) && $imagemagick_mpr)
+        	{
+        	// we really need dimensions here, so fallback to php's method
+        	if(file_exists($prefix . $file))
+        		{
+        		$identoutput = @getimagesize(escapeshellarg($prefix . $file));
+        		}
+        	else
+        		{
+        		return false;
+        		}
+        	}
+        
+        if(!empty($identoutput)){
+			$wh=explode("x",$identoutput);
+			$o_width=$wh[0];
+			$o_height=$wh[1];
+		}
+		elseif($imagemagick_mpr)
+        	{
+			// this puts us in a bad spot...return false
+			return false;
+			}
 
         if($lean_preview_generation){
 			$all_sizes=false;
 			if(!$thumbonly && !$previewonly){
 				// seperate width and height
 				$all_sizes=true;
-				if(!empty($identoutput)){
-					$wh=explode("x",$identoutput);
-					$o_width=$wh[0];
-					$o_height=$wh[1];
-				}
 			}
 		}
 		
@@ -1255,22 +1276,59 @@ function create_previews_using_im($ref,$thumbonly=false,$extension="jpg",$previe
 			}
 			$ps = array_values($ps);
 		}
+		
+		# Locate imagemagick.
+		$convert_fullpath = get_utility_path("im-convert");
+		if ($convert_fullpath==false) {debug("ERROR: Could not find ImageMagick 'convert' utility at location '$imagemagick_path'.",RESOURCE_LOG_APPEND_PREVIOUS); return false;}
+		
+		$command_list='';
+		if($imagemagick_mpr)
+			{
+			// need to check that we're using IM and not GM
+			$version = run_command($convert_fullpath . " -version");
+			if (strpos($version, "GraphicsMagick")!==false)
+				{
+				$imagemagick_mpr=false;
+				}
+			else
+				{
+				global $imagemagick_mpr_depth;
+				$command='';
+				$command_parts=array();
+				}
+			}
+		
 		$created_count=0;
 		for ($n=0;$n<count($ps);$n++)
-			{ 
+			{
+			if($imagemagick_mpr)
+				{
+				$mpr_parts=array();
+				}
+			
 			# If this is just a jpg resource, we avoid the hpr size because the resource itself is an original sized jpg. 
 			# If preview_preprocessing indicates the intermediate jpg should be kept as the hpr image, do that. 
-			if ($keep_for_hpr && $ps[$n]['id']=="hpr"){
+			if ($keep_for_hpr && $ps[$n]['id']=="hpr")
+				{
 				rename($file,$hpr_path); // $keep_for_hpr is switched to false below
-			}
+				}
 			
 			# If we've already made the LPR or SCR then use those for the remaining previews.
 			# As we start with the large and move to the small, this will speed things up.
-			if ($extension!="png" && $extension!="gif"){
-			if(file_exists($hpr_path)){$file=$hpr_path;}
-			if(file_exists($lpr_path)){$file=$lpr_path;}
-			if(file_exists($scr_path)){$file=$scr_path;}
-			}
+			if ($extension!="png" && $extension!="gif")
+				{
+				if(file_exists($hpr_path)){$file=$hpr_path;}
+				if(file_exists($lpr_path)){$file=$lpr_path;}
+				if(file_exists($scr_path)){$file=$scr_path;}
+				
+				# Check that source image dimensions are sufficient to create the required size. Unusually wide/tall images can
+				# mean that the height/width of the larger sizes is less than the required target height/width
+				list($checkw,$checkh) = @getimagesize($file);
+				if(($checkw<$ps[$n]['width'] || $checkh<$ps[$n]['height']) && $file!=$hpr_path)
+					{
+					$file=file_exists($hpr_path)?$hpr_path:$origfile;
+					}
+				}
 
 			# Locate imagemagick.
             $convert_fullpath = get_utility_path("im-convert");
@@ -1282,16 +1340,31 @@ function create_previews_using_im($ref,$thumbonly=false,$extension="jpg",$previe
 			    $flatten = "-flatten";
 			}
 
-            // Extensions for which the alpha/ matte channel should not be set to Off (i.e. +matte option)
+            // Extensions for which the alpha/ matte channel should not be set to Off (i.e. +matte option) *** '+matte' no longer exists but is the same as '-alpha off'
             $extensions_no_alpha_off = array('png', 'gif', 'tif');
 			
 			$preview_quality=get_preview_quality($ps[$n]['id']);
 			
-            $command = $convert_fullpath . ' '. escapeshellarg($file) . (!in_array($extension, $extensions_no_alpha_off) ? '[0] +matte ' : ' ') . $flatten . ' -quality ' . $preview_quality;
+			if(!$imagemagick_mpr)
+				{
+            	$command = $convert_fullpath . ' '. escapeshellarg($file) . (!in_array($extension, $extensions_no_alpha_off) ? '[0] +matte ' : '[0] ') . $flatten . ' -quality ' . $preview_quality;
+            	}
 
 			# fetch target width and height
-			$tw=$ps[$n]["width"];$th=$ps[$n]["height"];
+			$tw=$ps[$n]["width"];
+			$th=$ps[$n]["height"];
 			$id=$ps[$n]["id"];
+			
+			if($imagemagick_mpr)
+				{
+				$mpr_parts['id']=$id;
+				$mpr_parts['quality']=$preview_quality;
+				$mpr_parts['tw']=($id=='hpr' && $tw==999999 && isset($o_width) ? $o_width : $tw); // might as well pass on the original dimension
+				$mpr_parts['th']=($id=='hpr' && $th==999999 && isset($o_height) ? $o_height : $th); // might as well pass on the original dimension
+				$mpr_parts['flatten']=($flatten=='' ? false : true);
+				$mpr_parts['icc_transform_complete']=$icc_transform_complete;
+				}
+				
 
 			# Debug
 			debug("Contemplating " . $ps[$n]["id"] . " (sw=$sw, tw=$tw, sh=$sh, th=$th, extension=$extension)",RESOURCE_LOG_APPEND_PREVIOUS);
@@ -1299,6 +1372,11 @@ function create_previews_using_im($ref,$thumbonly=false,$extension="jpg",$previe
 			# Find the target path
 			if ($extension=="png" || $extension=="gif"){$target_ext=$extension;} else {$target_ext="jpg";}
 			$path=get_resource_path($ref,true,$ps[$n]["id"],false,$target_ext,-1,1,false,"",$alternative);
+			
+			if($imagemagick_mpr)
+				{
+				$mpr_parts['targetpath']=$path;
+				}
 			
 			# Delete any file at the target path. Unless using the previewbased option, in which case we need it.			
             if(!hook("imagepskipdel") && !$keep_for_hpr)
@@ -1322,7 +1400,7 @@ function create_previews_using_im($ref,$thumbonly=false,$extension="jpg",$previe
 			# Always make preview sizes for smaller file sizes.
 			#
 			# Always make pre/thm/col sizes regardless of source image size.
-			if (($id == "hpr" && !($extension=="jpg" || $extension=="jpeg")) || $previews_allow_enlarge || ($id == "scr" && !($extension=="jpg" || $extension=="jpeg")) || ($sw>$tw) || ($sh>$th) || ($id == "pre") || ($id=="thm") || ($id=="col") || in_array($id,$always_make_previews))
+			if (($id == "hpr" && !($extension=="jpg" || $extension=="jpeg")) || $previews_allow_enlarge || ($id == "scr" && !($extension=="jpg" || $extension=="jpeg")) || ($sw>$tw) || ($sh>$th) || ($id == "pre") || ($id=="thm") || ($id=="col") || in_array($id,$always_make_previews) || hook('force_preview_creation','',array($ref, $ps, $n, $alternative)))
 				{			
 				# Debug
 				debug("Generating preview size " . $ps[$n]["id"] . " to " . $path,RESOURCE_LOG_APPEND_PREVIOUS);
@@ -1340,72 +1418,147 @@ function create_previews_using_im($ref,$thumbonly=false,$extension="jpg",$previe
 						}
 					}
 				}
-
-				if($icc_extraction && file_exists($iccpath) && !$icc_transform_complete){
+				$profile='';
+				if($icc_extraction && file_exists($iccpath) && !$icc_transform_complete && (!$imagemagick_mpr || ($imagemagick_mpr_preserve_profiles && ($id=="thm" || $id=="col" || $id=="pre" || $id=="scr"))))
+					{
 					global $icc_preview_profile_embed;
 					// we have an extracted ICC profile, so use it as source
 					$targetprofile = dirname(__FILE__) . '/../iccprofiles/' . $icc_preview_profile;
-					$profile  = " -strip -profile $iccpath $icc_preview_options -profile $targetprofile".($icc_preview_profile_embed?" ":" -strip ");
-					// consider ICC transformation complete, if one of the sizes has been rendered that will be used for the smaller sizes
-                    if ($id == 'hpr' || $id == 'lpr' || $id == 'scr') $icc_transform_complete=true;
-				} else {
-					// use existing strategy for color profiles
-					# Preserve colour profiles? (omit for smaller sizes)
-					if ($imagemagick_preserve_profiles && $id!="thm" && $id!="col" && $id!="pre" && $id!="scr")
-						$profile="";
-					else if (!empty($default_icc_file))
-						$profile="-profile $default_icc_file ";
+					if($imagemagick_mpr)
+						{
+						$mpr_parts['strip_source']=(!$imagemagick_mpr_preserve_profiles ? true : false);
+						$mpr_parts['sourceprofile']=(!$imagemagick_mpr_preserve_profiles ? $iccpath : ''). " " . $icc_preview_options;
+						$mpr_parts['strip_target']=($icc_preview_profile_embed ? false : true);
+						$mpr_parts['targetprofile']=$targetprofile;
+						//$mpr_parts['colorspace']='';
+						}
 					else
 						{
-						# By default, strip the colour profiles ('+' is remove the profile, confusingly)
-						$profile="-strip -colorspace ".$imagemagick_colorspace;
+						$profile  = " -strip -profile $iccpath $icc_preview_options -profile $targetprofile".($icc_preview_profile_embed?" ":" -strip ");
 						}
-				}
-
-				$runcommand = $command ." ".(($extension!="png" && $extension!="gif")?" +matte $profile ":"")." -resize " . $tw . "x" . $th . (($previews_allow_enlarge && $id!="hpr")?" ":"\">\" ") .escapeshellarg($path);
-                                if(!hook("imagepskipthumb")):
-				$output=run_command($runcommand);
-                resource_log(RESOURCE_LOG_APPEND_PREVIOUS,LOG_CODE_TRANSFORMED,'','','',$runcommand . ":\n" . $output);
-
-                $created_count++;
-				# if this is the first file generated for non-ingested resources check rotation
-				if($autorotate_no_ingest && $created_count==1 && !$ingested){
-					# first preview created for non-ingested file...auto-rotate
-					if($id=="thm" || $id=="col" || $id=="pre" || $id=="scr"){AutoRotateImage($path,$ref);}
-					else{AutoRotateImage($path);}
-				}
-                                endif;
+					// consider ICC transformation complete, if one of the sizes has been rendered that will be used for the smaller sizes
+                    if ($id == 'hpr' || $id == 'lpr' || $id == 'scr')
+                    	{
+                    	$icc_transform_complete=true;
+                    	if($imagemagick_mpr)
+                    		{
+                    		$mpr_parts['icc_transform_complete']=$icc_transform_complete;
+                    		}
+                    	}
+					}
+					else 
+						{
+						// use existing strategy for color profiles
+						# Preserve colour profiles? (omit for smaller sizes)
+						if (($imagemagick_preserve_profiles || $imagemagick_mpr_preserve_profiles) && $id!="thm" && $id!="col" && $id!="pre" && $id!="scr")
+							{
+							if($imagemagick_mpr)
+								{
+								$mpr_parts['strip_source']=false;
+								$mpr_parts['sourceprofile']='';
+								$mpr_parts['strip_target']=false;
+								$mpr_parts['targetprofile']='';
+								}
+							else
+								{
+								$profile="";
+								}
+							}
+						else if (!empty($default_icc_file))
+							{
+							if($imagemagick_mpr)
+								{
+								$mpr_parts['strip_source']=false;
+								$mpr_parts['sourceprofile']=$default_icc_file;
+								$mpr_parts['strip_target']=false;
+								$mpr_parts['targetprofile']='';
+								}
+							else
+								{
+								$profile="-profile $default_icc_file ";
+								}
+							}
+						else
+							{
+							if($imagemagick_mpr)
+								{
+								$mpr_parts['strip_source']=true;
+								$mpr_parts['sourceprofile']='';
+								$mpr_parts['strip_target']=false;
+								$mpr_parts['targetprofile']='';
+								}
+							else
+								{
+								# By default, strip the colour profiles ('+' is remove the profile, confusingly)
+								$profile="-strip -colorspace ".$imagemagick_colorspace;
+								}
+							}
+						}
 				
-				// checkerboard
-				if ($extension=="png" || $extension=="gif"){
-					global $transparency_background;
-				$transparencyreal=dirname(__FILE__) ."/../" . $transparency_background;
+					if(!$imagemagick_mpr)
+						{
+						$runcommand = $command ." ".(($extension!="png" && $extension!="gif")?" +matte $profile ":"")." -resize " . $tw . "x" . $th . (($previews_allow_enlarge && $id!="hpr")?" ":"\">\" ") .escapeshellarg($path);
+						if(!hook("imagepskipthumb"))
+							{$command_list.=$runcommand."\n";
+							$output=run_command($runcommand);
+							resource_log(RESOURCE_LOG_APPEND_PREVIOUS,LOG_CODE_TRANSFORMED,'','','',$runcommand . ":\n" . $output);
 
-                    $cmd=str_replace("identify","composite",$identify_fullpath)."  -compose Dst_Over -tile ".escapeshellarg($transparencyreal)." ".escapeshellarg($path)." ".escapeshellarg(str_replace($extension,"jpg",$path));
-                    $wait=run_command($cmd, true);
-                    resource_log(RESOURCE_LOG_APPEND_PREVIOUS,LOG_CODE_TRANSFORMED,'','','',$cmd . ":\n" . $wait);
+							$created_count++;
+							# if this is the first file generated for non-ingested resources check rotation
+							if($autorotate_no_ingest && $created_count==1 && !$ingested){
+								# first preview created for non-ingested file...auto-rotate
+								if($id=="thm" || $id=="col" || $id=="pre" || $id=="scr")
+									{
+									AutoRotateImage($path,$ref);
+									}
+								else
+									{
+									AutoRotateImage($path);
+									}
+							}
+						}
+					
+					// checkerboard - this will have to be integrated into mpr
+					if ($extension=="png" || $extension=="gif")
+						{
+						global $transparency_background;
+						$transparencyreal=dirname(__FILE__) ."/../" . $transparency_background;
 
-                unlink($path);
-					$path=str_replace($extension,"jpg",$path);
-				}               
+						$cmd=str_replace("identify","composite",$identify_fullpath)."  -compose Dst_Over -tile ".escapeshellarg($transparencyreal)." ".escapeshellarg($path)." ".escapeshellarg(str_replace($extension,"jpg",$path));
+						$command_list.=$cmd."\n";
+						$wait=run_command($cmd, true);
+						resource_log(RESOURCE_LOG_APPEND_PREVIOUS,LOG_CODE_TRANSFORMED,'','','',$cmd . ":\n" . $wait);
+
+						unlink($path);
+						$path=str_replace($extension,"jpg",$path);
+						}
+					}           
 
 				# Add a watermarked image too?
 				global $watermark, $watermark_single_image;
 				
-				if (!hook("replacewatermarkcreation","",array($ref, $ps, $n, $alternative, $profile, $command))){
-				if (($alternative==-1 || ($alternative!==-1 && $alternative_file_previews)) && isset($watermark) && ($ps[$n]["internal"]==1 || $ps[$n]["allow_preview"]==1))
+				if (!hook("replacewatermarkcreation","",array($ref, $ps, $n, $alternative, $profile, $command)) && ($alternative==-1 || ($alternative!==-1 && $alternative_file_previews)) && isset($watermark) && ($ps[$n]["internal"]==1 || $ps[$n]["allow_preview"]==1))
 					{
 					$wmpath=get_resource_path($ref,true,$ps[$n]["id"],false,"jpg",-1,1,true,'',$alternative);
 					if (file_exists($wmpath)) {unlink($wmpath);}
 					
 					$watermarkreal=dirname(__FILE__) ."/../" . $watermark;
 					
-					$runcommand = $command ." +matte $profile -resize " . $tw . "x" . $th . "\">\" -tile ".escapeshellarg($watermarkreal)." -draw \"rectangle 0,0 $tw,$th\" ".escapeshellarg($wmpath); 
+					if($imagemagick_mpr)
+						{
+						$mpr_parts['wmpath']=$wmpath;
+						}
+					
+					if(!($extension=="png" || $extension=="gif") && !isset($watermark_single_image))
+						{
+						$runcommand = $command ." +matte $profile -resize " . $tw . "x" . $th . "\">\" -tile ".escapeshellarg($watermarkreal)." -draw \"rectangle 0,0 $tw,$th\" ".escapeshellarg($wmpath); 
+						}
 					
 					// alternate command for png/gif using the path from above, and omitting resizing
-					if ($extension=="png" || $extension=="gif"){
+					if ($extension=="png" || $extension=="gif")
+						{
 						$runcommand = $convert_fullpath . ' '. escapeshellarg($path) .(($extension!="png" && $extension!="gif")?'[0] +matte ':'') . $flatten . ' -quality ' . $preview_quality ." -tile ".escapeshellarg($watermarkreal)." -draw \"rectangle 0,0 $tw,$th\" ".escapeshellarg($wmpath); 
-					}
+						}
 
                     // Generate the command for a single watermark instead of a tiled one
                     if(isset($watermark_single_image))
@@ -1414,27 +1567,214 @@ function create_previews_using_im($ref,$thumbonly=false,$extension="jpg",$previe
 
                         $wm_scaled_width  = $tw * ($wm_scale / 100);
                         $wm_scaled_height = $th * ($wm_scale / 100);
-
-                        // Command example: convert input.jpg watermark.png -gravity Center -geometry 40x40+0+0 -resize 1100x800 -composite wm_version.jpg
-                        $runcommand = sprintf('%s %s %s -gravity %s -geometry %sx%s+0+0 -resize %sx%s -composite %s',
-                            $convert_fullpath,
-                            escapeshellarg($file),
-                            escapeshellarg($watermarkreal),
-                            escapeshellarg($watermark_single_image['position']),
-                            escapeshellarg($wm_scaled_width),
-                            escapeshellarg($wm_scaled_height),
-                            escapeshellarg($tw),
-                            escapeshellarg($th),
-                            escapeshellarg($wmpath)
-                        );
+						
+						// Command example: convert input.jpg watermark.png -gravity Center -geometry 40x40+0+0 -resize 1100x800 -composite wm_version.jpg
+						$runcommand = sprintf('%s %s %s -gravity %s -geometry %sx%s+0+0 -resize %sx%s -composite %s',
+							$convert_fullpath,
+							escapeshellarg($file),
+							escapeshellarg($watermarkreal),
+							escapeshellarg($watermark_single_image['position']),
+							escapeshellarg($wm_scaled_width),
+							escapeshellarg($wm_scaled_height),
+							escapeshellarg($tw),
+							escapeshellarg($th),
+							escapeshellarg($wmpath)
+						);
                         }
-
-					$output = run_command($runcommand);
-                    resource_log(RESOURCE_LOG_APPEND_PREVIOUS,LOG_CODE_TRANSFORMED,'','','',$runcommand . ":\n" . $output);
-
-                    }
-				}// end hook replacewatermarkcreation
-				} 
+					if(!$imagemagick_mpr)
+						{
+						$command_list.=$runcommand."\n";
+						$output = run_command($runcommand);
+						resource_log(RESOURCE_LOG_APPEND_PREVIOUS,LOG_CODE_TRANSFORMED,'','','',$runcommand . ":\n" . $output);
+						}
+					
+                    }// end hook replacewatermarkcreation
+				if($imagemagick_mpr)
+					{
+					// need a watermark replacement here as the existing hook doesn't work
+					$modified_mpr_watermark=hook("modify_mpr_watermark",'',array($ref,$ps, $n,$alternative));
+					if($modified_mpr_watermark!='')
+						{
+						$mpr_parts['wmpath']=$modified_mpr_watermark;
+						if($id!="thm" && $id!="col" && $id!="pre" && $id!="scr")
+							{
+							// need to convert the profile
+							$mpr_parts['wm_sourceprofile']=(!$imagemagick_mpr_preserve_profiles ? $iccpath : ''). " " . $icc_preview_options;
+							$mpr_parts['wm_targetprofile']=($icc_extraction && file_exists($iccpath) && $id!="thm" || $id!="col" || $id!="pre" || $id=="scr" ? dirname(__FILE__) . '/../iccprofiles/' . $icc_preview_profile : "");
+							}
+						}
+					$command_parts[]=$mpr_parts;
+					} 
+				}
+			
+			}
+		
+		// run the mpr command if set
+		if($imagemagick_mpr)
+			{
+			// let's run some checks to better optimize the convert command. Assume everything is the same until proven otherwise
+			$unique_flatten=false;
+			$unique_strip_source=false;
+			$unique_source_profile=false;
+			$unique_strip_target=false;
+			$unique_target_profile=false;
+			//$unique_colorspace=false;
+			
+			$cp_count=count($command_parts);
+			$mpr_init_write=false;
+			$mpr_icc_transform_complete=false;
+			$mpr_wm_created=false;
+			
+			for($p=1;$p<$cp_count;$p++)
+				{
+				$force_mpr_write=false;
+				$skip_source_and_target_profiles=false;
+				// we compare these with the previous
+				if($command_parts[$p]['flatten']!==$command_parts[$p-1]['flatten'] && !$unique_flatten)
+					{
+					$unique_flatten=true;
+					}
+				if($command_parts[$p]['strip_source']!==$command_parts[$p-1]['strip_source'] && !$unique_strip_source)
+					{
+					$unique_strip_source=true;
+					}
+				if($command_parts[$p]['sourceprofile']!==$command_parts[$p-1]['sourceprofile'] && !$unique_source_profile)
+					{
+					$unique_source_profile=true;
+					}
+				if($command_parts[$p]['strip_target']!==$command_parts[$p-1]['strip_target'] && !$unique_strip_target)
+					{
+					$unique_strip_target=true;
+					}
+				if($command_parts[$p]['targetprofile']!==$command_parts[$p-1]['targetprofile'] && !$unique_target_profile)
+					{
+					$unique_target_profile=true;
+					}
+				}
+			// time to build the command
+			$command=$convert_fullpath . ' ' . escapeshellarg($file) . (!in_array($extension, $extensions_no_alpha_off) ? '[0] -quiet -alpha off' : '[0] -quiet') . ' -depth ' . $imagemagick_mpr_depth;
+			if(!$unique_flatten)
+				{
+			 	$command.=($command_parts[0]['flatten'] ? " -flatten " : "");
+			 	}
+			 if(!$unique_strip_source)
+			 	{
+			 	$command.=($command_parts[0]['strip_source'] ? " -strip " : "");
+			 	}
+			 if(!$unique_source_profile && $command_parts[0]['sourceprofile']!=='')
+			 	{
+			 	$command.=" -profile " . $command_parts[0]['sourceprofile'];
+			 	}
+			 if(!$unique_strip_target)
+			 	{
+			 	$command.=($command_parts[0]['strip_target'] ? " -strip " : "");
+			 	}
+			 if(!$unique_source_profile && !$unique_target_profile && $command_parts[0]['targetprofile']!=='') // if the source is different but the target is the same we could get into trouble...
+			 	{
+			 	$command.=" -profile " . $command_parts[0]['targetprofile'];
+			 	}
+					
+			if($autorotate_no_ingest)
+				{
+				$orientation = get_image_orientation($file);
+				if($orientation != 0) 
+					{
+					$command.=' -rotate +' . $orientation;
+					}
+				}
+			$mpr_metadata_profiles='';
+			if(!empty($imagemagick_mpr_preserve_metadata_profiles))
+				{
+            	$mpr_metadata_profiles="!" . implode(",!",$imagemagick_mpr_preserve_metadata_profiles);	
+            	}	
+			
+			for($p=0;$p<$cp_count;$p++)
+				{
+				$command.=($p>0 && $mpr_init_write ? ' mpr:' . $ref : '');
+				
+				if(isset($command_parts[$p]['icc_transform_complete']) && !$mpr_icc_transform_complete && $command_parts[$p]['icc_transform_complete'] && $command_parts[$p]['targetprofile']!=='')
+					{
+					// convert to the target profile now. the source profile will only contain $icc_preview_options and needs to be included here as well
+					$command.=($command_parts[$p]['sourceprofile']!='' ? " " . $command_parts[$p]['sourceprofile'] : "") . " -profile " . $command_parts[$p]['targetprofile']. ($mpr_metadata_profiles!=='' ? " +profile \"" . $mpr_metadata_profiles . ",*\"" : "");
+					$mpr_icc_transform_complete=true;
+					$force_mpr_write=true;
+					$skip_source_and_target_profiles=true;
+					}
+					
+				if($command_parts[$p]['tw']!=='' && $command_parts[$p]['th']!=='')
+					{
+					$command.=" -resize " . $command_parts[$p]['tw'] . "x" . $command_parts[$p]['th'] . (($previews_allow_enlarge && $command_parts[$p]['id']!="hpr")?" ":"\">\"");
+					if($p>0)
+						{
+						$command.=" -write mpr:" . $ref ." -delete 1";
+						}
+					}
+				
+				if($unique_flatten || $unique_strip_source || $unique_source_profile || $unique_colorspace || $unique_strip_target || $unique_target_profile)
+					{
+					// make these changes
+					if($unique_flatten)
+						{
+						$command.=($command_parts[$p]['flatten'] ? " -flatten " : "");
+						}
+					 if($unique_strip_source && !$skip_source_and_target_profiles && !$mpr_icc_transform_complete)
+						{
+						$command.=($command_parts[$p]['strip_source'] ? " -strip " : "");
+						}
+					 if($unique_source_profile && $command_parts[$p]['sourceprofile']!=='' && !$skip_source_and_target_profiles && !$mpr_icc_transform_complete)
+						{
+						$command.=" -profile " . $command_parts[$p]['sourceprofile'];
+						}
+					 if($unique_strip_target && !$skip_source_and_target_profiles && !$mpr_icc_transform_complete) // if the source is different but the target is the same we could get into trouble...
+						{
+						$command.=($command_parts[$p]['strip_target'] ? " -strip" : "");
+						}
+					 if($unique_target_profile && $command_parts[$p]['targetprofile']!=='' && !$skip_source_and_target_profiles && !$mpr_icc_transform_complete)
+						{
+						$command.=" -profile " . $command_parts[$p]['targetprofile'];
+						}
+					}
+				// save out to file
+				$command.=(($p===($cp_count-1) && !isset($command_parts[$p]['wmpath'])) ? " " : " -quality " . $command_parts[$p]['quality'] . " -write "). escapeshellarg($command_parts[$p]['targetpath']) . ($mpr_wm_created && isset($command_parts[$p]['wmpath']) ? " +delete mpr:" . $ref : "" );
+				//$command.=" -write " . $command_parts[$p]['targetpath'];
+				// watermarks?
+				if(isset($command_parts[$p]['wmpath']))
+					{
+					if(!$mpr_wm_created)
+						{
+						if(isset($command_parts[$p]['wm_sourceprofile']))
+							{
+							// convert to the target profile now. the source profile will only contain $icc_preview_options and needs to be included here as well
+							$command.=($command_parts[$p]['wm_sourceprofile']!='' ? " " . $command_parts[$p]['wm_sourceprofile'] : "") . (isset($command_parts[$p]['wm_targetprofile']) && $command_parts[$p]['wm_targetprofile']!='' ? " -profile " . $command_parts[$p]['wm_targetprofile'] : "" ) . ($mpr_metadata_profiles!=='' ? " +profile \"" . $mpr_metadata_profiles . ",*\"" : "");
+							$mpr_icc_transform_complete=true;
+							//$force_mpr_write=true;
+							//$skip_source_and_target_profiles=true;
+							}
+						$TILESIZE=($command_parts[$p]['th']<$command_parts[$p]['tw'] ? $command_parts[$p]['th'] : $command_parts[$p]['tw']);
+						$TILESIZE=$TILESIZE/3;
+						$TILEROLL=$TILESIZE/4;
+						
+						// let's create the watermark and save as an mpr
+						$command.=" \( " . escapeshellarg($watermarkreal) . " -resize x" . escapeshellarg($TILESIZE) . " -background none -write mpr:" . $ref . " +delete \)";
+						$command.=" \( -size " . escapeshellarg($command_parts[$p]['tw']) . "x" . escapeshellarg($command_parts[$p]['th']) . " -roll -" . escapeshellarg($TILEROLL) . "-" . escapeshellarg($TILEROLL) . " tile:mpr:" . $ref . " \) \( -clone 0 -clone 1 -compose dissolve -define compose:args=5 -composite \)";
+						$mpr_init_write=true;
+						$mpr_wm_created=true;
+						$command.=" -delete 1 -write mpr:" . $ref . " -delete 0";
+						$command.=" -quality " . $command_parts[$p]['quality'] . ($p!==($cp_count-1) ? " -write " : " "). escapeshellarg($command_parts[$p]['wmpath']);
+						}
+					// now add the watermark line in
+					else
+						{
+						$command.=" -delete 0" . ($p!==($cp_count-1) ? " -write " : " "). escapeshellarg($command_parts[$p]['wmpath']);
+						}
+					}
+					$command.=($p!==($cp_count-1) && $mpr_init_write ? " +delete" : "");
+				}
+			$modified_mpr_command=hook('modify_mpr_command','',array($command,$ref,$extension));
+			if($modified_mpr_command!=''){$command=$modified_mpr_command;}
+			$output = exec($command);
+			// logging
+			resource_log(RESOURCE_LOG_APPEND_PREVIOUS,LOG_CODE_TRANSFORMED,'','','',$command . ":\n" . $output);
 			}
 		# For the thumbnail image, call extract_mean_colour() to save the colour/size information
 		$target=@imagecreatefromjpeg(get_resource_path($ref,true,"thm",false,"jpg",-1,1,false,"",$alternative));
@@ -1451,6 +1791,8 @@ function create_previews_using_im($ref,$thumbonly=false,$extension="jpg",$previe
 				sql_query("update resource set preview_attempts=ifnull(preview_attempts,0) + 1 where ref='$ref'");
 				}
 			}
+		
+		hook('afterpreviewcreation', '',array($ref, $alternative));
 		return true;
 		}
 	else
@@ -1604,7 +1946,7 @@ function get_colour_key($image)
 	return($colkey);
 	}
 
-function tweak_preview_images($ref,$rotateangle,$gamma,$extension="jpg")
+function tweak_preview_images($ref,$rotateangle,$gamma,$extension="jpg",$alternative=-1)
 	{
 	# Tweak all preview images
 	# On the edit screen, preview images can be either rotated or gamma adjusted. We keep the high(original) and low resolution print versions intact as these would be adjusted professionally when in use in the target application.
@@ -1612,13 +1954,13 @@ function tweak_preview_images($ref,$rotateangle,$gamma,$extension="jpg")
 	# Use the screen resolution version for processing
 	global $tweak_all_images;
 	if ($tweak_all_images){
-		$file=get_resource_path($ref,true,"hpr",false,$extension);$top="hpr";
+		$file=get_resource_path($ref,true,"hpr",false,$extension,-1,1,false,'',$alternative);$top="hpr";
 		if (!file_exists($file)) {
-			$file=get_resource_path($ref,true,"lpr",false,$extension);$top="lpr";
+			$file=get_resource_path($ref,true,"lpr",false,$extension,-1,1,false,'',$alternative);$top="lpr";
 			if (!file_exists($file)) {
-				$file=get_resource_path($ref,true,"scr",false,$extension);$top="scr";
+				$file=get_resource_path($ref,true,"scr",false,$extension,-1,1,false,'',$alternative);$top="scr";
 				if (!file_exists($file)) {
-					$file=get_resource_path($ref,true,"pre",false,$extension);$top="pre";
+					$file=get_resource_path($ref,true,"pre",false,$extension,-1,1,false,'',$alternative);$top="pre";
 				}
 			}
 		}
@@ -1666,7 +2008,7 @@ function tweak_preview_images($ref,$rotateangle,$gamma,$extension="jpg")
 	for ($n=0;$n<count($ps);$n++)
 		{
 		# fetch target width and height
-	    $file=get_resource_path($ref,true,$ps[$n]["id"],false,$extension);		
+	    $file=get_resource_path($ref,true,$ps[$n]["id"],false,$extension,-1,1,false,'',$alternative);		
 	    if (file_exists($file)){
 			list($sw,$sh) = @getimagesize($file);
 	    
@@ -1690,7 +2032,7 @@ function tweak_preview_images($ref,$rotateangle,$gamma,$extension="jpg")
 			}
 		}
 
-	if ($rotateangle!=0)
+	if ($rotateangle!=0 && $alternative==-1)
 		{
 		# Swap thumb heights/widths
 		$ts=sql_query("select thumb_width,thumb_height from resource where ref='$ref'");
@@ -1706,11 +2048,15 @@ function tweak_preview_images($ref,$rotateangle,$gamma,$extension="jpg")
 		
 		}
 	# Update the modified date to force the browser to reload the new thumbs.
-	sql_query("update resource set file_modified=now() where ref='$ref'");
+	$current_preview_tweak ='';
+	if ($alternative==-1){
+		sql_query("update resource set file_modified=now() where ref='$ref'");
 	
 	# record what was done so that we can reconstruct later if needed
 	# current format is rotation|gamma. Additional could be tacked on if more manipulation options are added
 	$current_preview_tweak = sql_value("select preview_tweaks value from resource where ref = '$ref'","");
+	}
+	
 	if (strlen($current_preview_tweak) == 0)
 		{
 			$oldrotate = 0;
@@ -1733,19 +2079,20 @@ function tweak_preview_images($ref,$rotateangle,$gamma,$extension="jpg")
 		}
         global $watermark;
         if ($watermark){
-            tweak_wm_preview_images($ref,$rotateangle,$gamma);
+            tweak_wm_preview_images($ref,$rotateangle,$gamma,"jpg",$alternative);
         }
-        
-        sql_query("update resource set preview_tweaks = '$newrotate|$newgamma' where ref = $ref");
+        if ($alternative==-1){
+			sql_query("update resource set preview_tweaks = '$newrotate|$newgamma' where ref = $ref");
+		}
         
 	}
 
-function tweak_wm_preview_images($ref,$rotateangle,$gamma,$extension="jpg"){
+function tweak_wm_preview_images($ref,$rotateangle,$gamma,$extension="jpg",$alternative=-1){
 
     $ps=sql_query("select * from preview_size where (internal=1 or allow_preview=1)");
     for ($n=0;$n<count($ps);$n++)
         {
-        $wm_file=get_resource_path($ref,true,$ps[$n]["id"],false,$extension,-1,1,true);
+        $wm_file=get_resource_path($ref,true,$ps[$n]["id"],false,$extension,-1,1,true,'',$alternative);
         if (!file_exists($wm_file)) {return false;}
         list($sw,$sh) = @getimagesize($wm_file);
         
@@ -2166,7 +2513,7 @@ function AutoRotateImage($src_image, $ref = false)
                 resource_log(RESOURCE_LOG_APPEND_PREVIOUS,LOG_CODE_TRANSFORMED,'','','',$command . ":\n" . $output);
 
                 # change the orientation metadata
-                $command = $exiftool_fullpath . ' Orientation=1 ' . escapeshellarg($new_image);
+                $command = $exiftool_fullpath . ' -Orientation=1 ' . escapeshellarg($new_image);
                 }
             } 
         else
@@ -2199,7 +2546,7 @@ function AutoRotateImage($src_image, $ref = false)
         # Also, don't go through this step if the old orientation was set to normal
         if ($old_orientation != '' && $old_orientation != 1) 
             {
-            $fix_orientation = $exiftool_fullpath . ' Orientation=1 -n ' . escapeshellarg($new_image);
+            $fix_orientation = $exiftool_fullpath . ' -Orientation=1 -n ' . escapeshellarg($new_image);
             $output=run_command($fix_orientation);
             resource_log(RESOURCE_LOG_APPEND_PREVIOUS,LOG_CODE_TRANSFORMED,'','','',$fix_orientation . ":\n" . $output);
             }
@@ -2285,62 +2632,70 @@ function get_imagemagick_version($array=true){
 }
 
 
-## Sizing calculations
-function do_contactsheet_sizing_calculations(){
-global $sheetstyle,$deltay,$add_contactsheet_logo,$pageheight,$pagewidth,$column,$config_sheetthumb_fields,$config_sheetthumb_include_ref,$leading,$refnumberfontsize,$imagesize,$columns,$rowsperpage,$cellsize,$logospace,$page,$rowsperpage,$contact_sheet_logo_resize,$contact_sheet_custom_footerhtml,$footerspace,$contactsheet_header,$config_sheetsingle_fields,$config_sheetsingle_include_ref,$orientation;
+/**
+* Function used to get new width & height for an image in order to maintain
+* aspect ratio while it will fit within a desired dimension.
+* 
+* @param string  $image_path    The full path to the image (can be physical / URL)
+* @param integer $target_width  
+* @param integer $target_height 
+* @param boolean $enlarge_image Specify whether images smaller than our target
+*                               should be enlarged or not. Default is FALSE
+* 
+* @return array New dimensions which can be used to resize the image and offset values client
+*               code can use for consistent visual display
+*/
+function calculate_image_dimensions($image_path, $target_width, $target_height, $enlarge_image = false)
+    {
+    if(false === (list($source_width, $source_height) = @getimagesize($image_path)))
+        {
+        trigger_error("'{$image_path}' is not a valid image!");
+        }
 
+    $return = array(
+        'portrait'  => false,
+        'landscape' => false,
+    );
 
-if ($sheetstyle=="thumbnails")
+    // Check orientation and calculate ratio
+    if($source_width > $source_height)
+        {
+        // Landscape
+        $return['landscape'] = true;
+
+        $ratio = $target_width / $source_width;
+        }
+    else
+        {
+        // Portrait
+        $return['portrait'] = true;
+
+        $ratio = $target_height / $source_height;
+        }
+
+    if(!$enlarge_image && $target_width > $source_width)
+        {
+        $ratio = 1;
+        }
+
+    $return['new_width']  = floor($source_width * $ratio);
+    $return['new_height'] = floor($source_height * $ratio);
+    $return['x_offset']   = ceil(($target_height - $return['new_height']) / 2);
+    $return['y_offset']   = ceil(($target_width - $return['new_width']) / 2);
+
+    return $return;
+    }
+
+function upload_file_by_url($ref,$no_exif=false,$revert=false,$autorotate=false,$url)
 	{
-	if ($add_contactsheet_logo && $contact_sheet_logo_resize)
-	{$logospace=$pageheight/9;}
-
-	$columns=$column;
-	#calculating sizes of cells, images, and number of rows:
-	$cellsize[0]=$cellsize[1]=($pagewidth-1.7)/$columns;
-	$imagesize=$cellsize[0]-.3;
-	# estimate rows per page based on config lines
-	$extralines=(count($config_sheetthumb_fields)!=0)?count($config_sheetthumb_fields):0;
-	if ($contact_sheet_custom_footerhtml!=''){$footerspace=$pageheight*.05;}
-	if ($config_sheetthumb_include_ref){$extralines++;}
-	$rowsperpage=($pageheight-.5-$logospace-$footerspace-($cellsize[1]+($extralines*(($refnumberfontsize+$leading)/72))))/($cellsize[1]+($extralines*(($refnumberfontsize+$leading)/72)));
-	$page=1;	
+	# Download a file from the provided URL, then upload it as if it was a local upload.
+	global $userref;
+	$file_path=get_temp_dir(false,$userref) . "/" . basename($url); # Temporary path creation for the downloaded file.
+	copy($url, $file_path); # Download the file.
+	return upload_file($ref,$no_exif,$revert,$autorotate,$file_path);	# Process as a normal upload...
 	}
-else if ($sheetstyle=="list")
-	{ 
-	if ($add_contactsheet_logo && $contact_sheet_logo_resize)
-	{$logospace=$pageheight/9;}
-	#calculating sizes of cells, images, and number of rows:
-	$columns=1;
-	$imagesize=1.0;
-	$cellsize[0]=$pagewidth-1.7;
-	$cellsize[1]=1.2;
-	if ($contact_sheet_custom_footerhtml!=''){$footerspace=$pageheight*.05;}
-	$rowsperpage=($pageheight-1.2-$logospace-$footerspace-$cellsize[1])/$cellsize[1];
-	$page=1;
-	}
-else if ($sheetstyle=="single")
-	{
-	$extralines=(count($config_sheetsingle_fields)!=0)?count($config_sheetsingle_fields):0;
-	if ($add_contactsheet_logo && $contact_sheet_logo_resize)
-		{
-		if ($orientation=="L"){$logospace=$pageheight/11;if ($contactsheet_header){$extralines=$extralines + 2;}} else {$logospace=$pageheight/9;}
-		}
-	$columns=$column;	
-	if ($config_sheetsingle_include_ref){$extralines++;}
 	
-	# calculate size of single cell per page, allowing for extra lines. Needs to be smaller if landscape.
-	if ($orientation=="L")
-		{
-		$cellsize[0]=$cellsize[1]=($pageheight*0.65)-($extralines*(($refnumberfontsize+$leading)/72));
-		}
-	else 
-		{
-		$cellsize[0]=$cellsize[1]=($pagewidth*0.8);
-		}
-	$imagesize=$cellsize[0]-0.3;
-	$rowsperpage=1;
-	$page=1;
-	$columns=1;
-	}
-}
+	
+	
+	
+	

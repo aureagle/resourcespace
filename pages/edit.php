@@ -10,6 +10,7 @@ include_once '../include/node_functions.php';
 
 # Editing resource or collection of resources (multiple)?
 $ref=getvalescaped("ref","",true);
+if(getval("create","")!="" && $ref==0 && $userref>0){$ref=0-$userref;} // Saves manual link creation having to work out user template ref
 
 # Fetch search details (for next/back browsing and forwarding of search params)
 $search=getvalescaped("search","");
@@ -302,7 +303,7 @@ if ((getval("autosave","")!="") || (getval("tweak","")=="" && getval("submitted"
                 $ref=copy_resource(0-$userref);
                 if($collection_add!="")
                     {
-                    add_resource_to_collection($ref, $collection_add);
+                    add_resource_to_collection($ref, $collection_add,false,"",$resource_type);
                     set_user_collection($userref, $collection_add);
                     }
                 redirect($baseurl_short."pages/view.php?ref=". urlencode($ref) . '&refreshcollectionframe=true');
@@ -526,15 +527,15 @@ function EditNav() # Create a function so this can be repeated at the end of the
   global $baseurl_short,$ref,$search,$offset,$order_by,$sort,$archive,$lang,$modal,$restypes;
   ?>
   <div class="backtoresults">
-  <a class="prevLink" onClick="return <?php echo ($modal?"Modal":"CentralSpace") ?>Load(this,true);" href="<?php echo $baseurl_short?>pages/edit.php?ref=<?php echo urlencode($ref) ?>&amp;search=<?php echo urlencode($search)?>&amp;offset=<?php echo urlencode($offset) ?>&amp;order_by=<?php echo urlencode($order_by) ?>&amp;sort=<?php echo urlencode($sort) ?>&amp;archive=<?php echo urlencode($archive) ?>&amp;go=previous&amp;restypes=<?php echo $restypes; ?>"><?php echo $lang["previousresult"]?></a>
+  <a class="prevLink fa fa-arrow-left" onClick="return <?php echo ($modal?"Modal":"CentralSpace") ?>Load(this,true);" href="<?php echo $baseurl_short?>pages/edit.php?ref=<?php echo urlencode($ref) ?>&amp;search=<?php echo urlencode($search)?>&amp;offset=<?php echo urlencode($offset) ?>&amp;order_by=<?php echo urlencode($order_by) ?>&amp;sort=<?php echo urlencode($sort) ?>&amp;archive=<?php echo urlencode($archive) ?>&amp;go=previous&amp;restypes=<?php echo $restypes; ?>"></a>
   
   <a class="upLink" onClick="return CentralSpaceLoad(this,true);" href="<?php echo $baseurl_short?>pages/search.php<?php if (strpos($search,"!")!==false) {?>?search=<?php echo urlencode($search)?>&amp;offset=<?php echo urlencode($offset) ?>&amp;order_by=<?php echo urlencode($order_by) ?>&amp;archive=<?php echo urlencode($archive) ?>&amp;sort=<?php echo urlencode($sort) ?>&amp;restypes=<?php echo $restypes; ?><?php } ?>"><?php echo $lang["viewallresults"]?></a>
   
-  <a class="nextLink" onClick="return <?php echo ($modal?"Modal":"CentralSpace") ?>Load(this,true);" href="<?php echo $baseurl_short?>pages/edit.php?ref=<?php echo urlencode($ref) ?>&amp;search=<?php echo urlencode($search)?>&amp;offset=<?php echo urlencode($offset) ?>&amp;order_by=<?php echo urlencode($order_by) ?>&amp;sort=<?php echo urlencode($sort) ?>&amp;archive=<?php echo urlencode($archive) ?>&amp;go=next&amp;restypes=<?php echo $restypes; ?>"><?php echo         $lang["nextresult"]?></a>
+  <a class="nextLink fa fa-arrow-right" onClick="return <?php echo ($modal?"Modal":"CentralSpace") ?>Load(this,true);" href="<?php echo $baseurl_short?>pages/edit.php?ref=<?php echo urlencode($ref) ?>&amp;search=<?php echo urlencode($search)?>&amp;offset=<?php echo urlencode($offset) ?>&amp;order_by=<?php echo urlencode($order_by) ?>&amp;sort=<?php echo urlencode($sort) ?>&amp;archive=<?php echo urlencode($archive) ?>&amp;go=next&amp;restypes=<?php echo $restypes; ?>"></a>
   
   <?php if ($modal) { ?>
-&nbsp;&nbsp;&nbsp;&nbsp;<a href="<?php echo $baseurl_short?>pages/edit.php?ref=<?php echo urlencode($ref)?>&amp;search=<?php echo urlencode($search)?>&amp;offset=<?php echo urlencode($offset)?>&amp;order_by=<?php echo urlencode($order_by)?>&amp;sort=<?php echo urlencode($sort)?>&amp;archive=<?php echo urlencode($archive)?>&amp;restypes=<?php echo $restypes; ?>" onClick="return CentralSpaceLoad(this);"><?php echo $lang["maximise"]?></a>
-&nbsp;&nbsp;&nbsp;&nbsp;<a href="#" onClick="ModalClose();"><?php echo $lang["close"] ?></a>
+&nbsp;&nbsp;<a class="maxLink fa fa-expand" href="<?php echo $baseurl_short?>pages/edit.php?ref=<?php echo urlencode($ref)?>&amp;search=<?php echo urlencode($search)?>&amp;offset=<?php echo urlencode($offset)?>&amp;order_by=<?php echo urlencode($order_by)?>&amp;sort=<?php echo urlencode($sort)?>&amp;archive=<?php echo urlencode($archive)?>&amp;restypes=<?php echo $restypes; ?>" onClick="return CentralSpaceLoad(this);"></a>
+&nbsp;<a href="#"  class="closeLink fa fa-times" onClick="ModalClose();"></a>
 <?php } ?>
   </div>
   <?php
@@ -580,6 +581,7 @@ if(0 > $ref)
 <form method="post" action="<?php echo $form_action; ?>" id="mainform" onsubmit="return <?php echo ($modal?"Modal":"CentralSpace") ?>Post(this,true);">
 
    <div class="BasicsBox">
+    
       <input type="hidden" name="submitted" value="true">
    <?php 
    if ($multiple) 
@@ -767,13 +769,9 @@ else
     elseif ((getval("local","")!="")||(getval("uploader","")=="local")) {$titleh1 = $lang["addresourcebatchlocalfolder"];} # Add Resource Batch - Fetch from local upload folder
     else $titleh1 = $lang["addresourcebatchftp"]; # Add Resource Batch - Fetch from FTP server
     
-    # Define the subtitle h2:
-    $titleh2 = str_replace(array("%number","%subtitle"), array("1", $lang["specifydefaultcontent"]), $lang["header-upload-subtitle"]);
-    
     ?>
     
     <h1><?php echo $titleh1 ?></h1>
-    <h2><?php echo $titleh2 ?></h2>
     <p><?php echo $lang["intro-batch_edit"] ?></p>
     
     <?php
@@ -1085,8 +1083,11 @@ function display_field($n, $field, $newtab=false)
   {
   global $use, $ref, $original_fields, $multilingual_text_fields, $multiple, $lastrt,$is_template, $language, $lang,
   $blank_edit_template, $edit_autosave, $errors, $tabs_on_edit, $collapsible_sections, $ctrls_to_save,
-  $embedded_data_user_select, $embedded_data_user_select_fields, $show_error, $save_errors, $baseurl;
+  $embedded_data_user_select, $embedded_data_user_select_fields, $show_error, $save_errors, $baseurl, $is_search;
 
+  // Set $is_search to false in case page request is not an ajax load and $is_search hs been set from the searchbar
+  $is_search=false;
+  
   $name="field_" . $field["ref"];
   $value=$field["value"];
   $value=trim($value);
@@ -1370,9 +1371,7 @@ if($collapsible_sections)
     <input type="submit" name="save" value="Save">
  </div><!-- end of question_copyfrom -->
  <?php
-}
-
-?><h2  <?php if($collapsible_sections){echo'class="CollapsibleSectionHead"';}?> id="ResourceMetadataSectionHead"><?php echo $lang["resourcemetadata"]?></h2><?php
+} ?><br /><br /><?php hook('addcollapsiblesection'); ?><h2  <?php if($collapsible_sections){echo'class="CollapsibleSectionHead"';}?> id="ResourceMetadataSectionHead"><?php echo $lang["resourcemetadata"]?></h2><?php
 ?><div <?php if($collapsible_sections){echo'class="CollapsibleSection"';}?> id="ResourceMetadataSection<?php if ($ref<0) echo "Upload"; ?>"><?php
 }
 

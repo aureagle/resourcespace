@@ -420,7 +420,7 @@ if ((($extension=="odt") || ($extension=="ott") || ($extension=="odg") || ($exte
 	so it will likely work in most cases, but I think the specs allow it to go anywhere.
    ----------------------------------------
 */
-if ((($extension=="docx") || ($extension=="xlsx") || ($extension=="pptx") || ($extension=="xps")) && !isset($newfile))
+if ((($extension=="docx") || ($extension=="xlsx") || ($extension=="pptx") || ($extension=="xps")) && !isset($newfile) && in_array($extension,$unoconv_extensions) )
 	{
     $cmd="unzip -p ".escapeshellarg($file)." \"docProps/thumbnail.jpeg\" > $target";
     $output=run_command($cmd);
@@ -539,91 +539,137 @@ if ($extension=="txt" && !isset($newfile))
 	Try FFMPEG for video files
    ----------------------------------------
 */
-$ffmpeg_fullpath = get_utility_path("ffmpeg");
-$ffprobe_fullpath = get_utility_path("ffprobe");
-global $ffmpeg_preview,$ffmpeg_preview_seconds,$ffmpeg_preview_extension,$ffmpeg_preview_options, $ffmpeg_preview_min_width,$ffmpeg_preview_min_height,$ffmpeg_preview_max_width,$ffmpeg_preview_max_height, $php_path, $ffmpeg_preview_async, $ffmpeg_preview_force;
+$ffmpeg_fullpath = get_utility_path('ffmpeg');
+global $ffmpeg_preview,$ffmpeg_preview_seconds,$ffmpeg_preview_extension,$ffmpeg_preview_options,
+       $ffmpeg_preview_min_width, $ffmpeg_preview_min_height, $ffmpeg_preview_max_width,
+       $ffmpeg_preview_max_height, $php_path, $ffmpeg_preview_async, $ffmpeg_preview_force,
+       $ffmpeg_snapshot_frames;
 
+debug('FFMPEG-VIDEO: ####################################################################', RESOURCE_LOG_APPEND_PREVIOUS);
+debug('FFMPEG-VIDEO: Start trying FFMPeg for video files -- resource ID ' . $ref, RESOURCE_LOG_APPEND_PREVIOUS);
 
 // If a snapshot has already been created and $ffmpeg_no_new_snapshots, never revert the snapshot (this is usually a custom preview)
-debug('FFMPEG-VIDEO: ####################################################################',RESOURCE_LOG_APPEND_PREVIOUS);
-debug('FFMPEG-VIDEO: Start trying FFMPeg for video files -- resource ID ' . $ref,RESOURCE_LOG_APPEND_PREVIOUS);
-if (($ffmpeg_fullpath!=false) && $snapshotcheck && in_array($extension, $ffmpeg_supported_extensions) && $ffmpeg_no_new_snapshots)
-	{
-		debug('FFMPEG-VIDEO: Create a preview for this video by going straight to ffmpeg_processing.php',RESOURCE_LOG_APPEND_PREVIOUS);
-		$target=get_resource_path($ref,true,"pre",false,'jpg',-1,1,false,"");
-		include (dirname(__FILE__)."/ffmpeg_processing.php");
-	}
+if(false != $ffmpeg_fullpath && $snapshotcheck && in_array($extension, $ffmpeg_supported_extensions) && $ffmpeg_no_new_snapshots)
+    {
+    debug('FFMPEG-VIDEO: Create a preview for this video by going straight to ffmpeg_processing.php', RESOURCE_LOG_APPEND_PREVIOUS);
 
+    $target = get_resource_path($ref, true, 'pre', false, 'jpg', -1, 1, false, '');
 
+    include dirname(__FILE__) . '/ffmpeg_processing.php';
+    }
 else if (($ffmpeg_fullpath!=false) && !isset($newfile) && in_array($extension, $ffmpeg_supported_extensions))
-        {   
-		debug('FFMPEG-VIDEO: Start process for creating previews...',RESOURCE_LOG_APPEND_PREVIOUS);
+    {
+    debug('FFMPEG-VIDEO: Start process for creating previews...', RESOURCE_LOG_APPEND_PREVIOUS);
 
-        $snapshottime = 1;
+    $snapshottime = 1;
 
-        $cmd=$ffprobe_fullpath . " -i " . escapeshellarg($file);
-        $out = run_command($cmd, true);
-        resource_log(RESOURCE_LOG_APPEND_PREVIOUS,LOG_CODE_TRANSFORMED,'','','',$cmd . ":\n" . $out);
+    $cmd = $ffmpeg_fullpath . ' -i ' . escapeshellarg($file);
+    $out = run_command($cmd, true);
 
-        debug('FFMPEG-VIDEO: Running information command: ' . $ffprobe_fullpath . ' -i ' . $file,RESOURCE_LOG_APPEND_PREVIOUS);
+    resource_log(RESOURCE_LOG_APPEND_PREVIOUS, LOG_CODE_TRANSFORMED, '', '', '', $cmd . ":\n" . $out);
+    debug("FFMPEG-VIDEO: Running information command: {$cmd}", RESOURCE_LOG_APPEND_PREVIOUS);
 
-        if(preg_match("/Duration: (\d+):(\d+):(\d+)\.\d+, start/", $out, $match))
-        	{
-		$duration = $match[1]*3600+$match[2]*60+$match[3];
-		if($duration>10)
-			{
-			$snapshottime = floor($duration * $ffmpeg_snapshot_fraction);
-			}
-		if(isset($ffmpeg_snapshot_seconds)) // Overrides the other settings
-			{
-			if($ffmpeg_snapshot_seconds<$duration)
-				{$snapshottime = $ffmpeg_snapshot_seconds;}
-			}
-		}
-	if ($extension=="mxf")
-		{ $snapshottime = 0; }
-
-
- 	if(!hook("previewpskipthumb","",array($file))){
-
-    $cmd=$ffmpeg_fullpath . " $ffmpeg_global_options -y -i " . escapeshellarg($file) . " -f image2 -vframes 1 -ss ".$snapshottime." " . escapeshellarg($target);
-    $output = run_command($cmd);
-    resource_log(RESOURCE_LOG_APPEND_PREVIOUS,LOG_CODE_TRANSFORMED,'','','',$cmd . ":\n" . $output);
-
-   debug('FFMPEG-VIDEO: Get snapshot: ' . $ffmpeg_fullpath . ' ' . $ffmpeg_global_options . ' -y -i ' . $file . ' -f image2 -vframes 1 -ss ' . $snapshottime . ' ' . $target,RESOURCE_LOG_APPEND_PREVIOUS);
-	}
-        if (file_exists($target)) 
+    if(preg_match('/Duration: (\d+):(\d+):(\d+)\.\d+, start/', $out, $match))
+        {
+        $duration = $match[1] * 3600 + $match[2] * 60 + $match[3];
+        debug("FFMPEG-VIDEO: \$duration = {$duration} seconds", RESOURCE_LOG_APPEND_PREVIOUS);
+        
+        if(10 < $duration)
             {
-            $newfile=$target;
-            debug('FFMPEG-VIDEO: $newfile = ' . $newfile,RESOURCE_LOG_APPEND_PREVIOUS);
-           
+            $snapshottime = floor($duration * (isset($ffmpeg_snapshot_fraction) ? $ffmpeg_snapshot_fraction : 0.1));
+            }
 
-            if ($ffmpeg_preview && ($extension!=$ffmpeg_preview_extension || $ffmpeg_preview_force) )
+        if(isset($ffmpeg_snapshot_seconds)) // Overrides the other settings
+            {
+            if($ffmpeg_snapshot_seconds < $duration)
                 {
-                	debug('FFMPEG-VIDEO: Before running the actual preview command...',RESOURCE_LOG_APPEND_PREVIOUS);
-                	if ($ffmpeg_preview_async && isset($php_path) && file_exists($php_path . "/php"))
-	                	{
-	                		debug('FFMPEG-VIDEO: Create preview asynchronously...',RESOURCE_LOG_APPEND_PREVIOUS);
-	                	global $scramble_key;
-	                	exec($php_path . "/php " . dirname(__FILE__)."/ffmpeg_processing.php " . 
-	                		escapeshellarg($scramble_key) . " " . 
-	                		escapeshellarg($ref) . " " . 
-	                		escapeshellarg($file) . " " . 
-	                		escapeshellarg($target) . " " . 
-	                		escapeshellarg($previewonly) . " " . 
-					escapeshellarg($snapshottime) . " " .
-                                      	escapeshellarg($alternative) . " " .
-                                       	"> /dev/null 2>&1 &");
-	                	}
-                	else 
-	                	{
-	                		debug('FFMPEG-VIDEO: include ffmpeg_processing.php file...',RESOURCE_LOG_APPEND_PREVIOUS);
-	                	include (dirname(__FILE__)."/ffmpeg_processing.php");
-	                	}
+                $snapshottime = $ffmpeg_snapshot_seconds;
                 }
             }
-            debug('FFMPEG-VIDEO: ####################################################################',RESOURCE_LOG_APPEND_PREVIOUS);
-        } 
+
+        // Generate snapshots for the whole video
+        // Custom target used ONLY for captured snapshots during the video
+        if(1 < $ffmpeg_snapshot_frames)
+            {
+            $frame_rate     = '1/' . ceil($duration / $ffmpeg_snapshot_frames);
+            $snapshot_scale = '';
+            $escaped_file   = escapeshellarg($file);
+            $escaped_target = escapeshellarg(str_replace('snapshot', 'snapshot_%d', get_resource_path($ref, true, 'snapshot', false, 'jpg', -1, 1, false, '')));
+
+            // Find video resolution, figure out whether it is landscape/ portrait and adjust the scaling for the snapshots accordingly
+            include dirname(__FILE__) . '/video_functions.php';
+
+            $video_resolution = get_video_resolution($ffmpeg_fullpath, $file);
+            $snapshot_size    = sql_query('SELECT width, height FROM preview_size WHERE id = "pre"');
+
+            if(isset($snapshot_size[0]) && 0 < count($snapshot_size[0]))
+                {
+                $snapshot_width  = $snapshot_size[0]['width'];
+                $snapshot_height = $snapshot_size[0]['height'];
+                }
+
+            if($video_resolution['width'] > $video_resolution['height'] && isset($snapshot_width) && $video_resolution['width'] >= $snapshot_width)
+                {
+                // Landscape
+                $snapshot_scale = "-vf scale={$snapshot_width}:-1";
+                }
+            else if($video_resolution['width'] < $video_resolution['height'] && isset($snapshot_height) && $video_resolution['height'] >= $snapshot_height)
+                {
+                // Portrait
+                $snapshot_scale = "-vf scale=-1:{$snapshot_height}";
+                }
+
+            $cmd = "{$ffmpeg_fullpath} {$ffmpeg_global_options} -y -i {$escaped_file} -r {$frame_rate} {$snapshot_scale} {$escaped_target}";
+            $output = run_command($cmd);
+            }
+        }
+
+    if('mxf' == $extension)
+        {
+        $snapshottime = 0;
+        }
+
+    if(!hook('previewpskipthumb', '', array($file)))
+        {
+        $cmd = $ffmpeg_fullpath . ' ' . $ffmpeg_global_options . ' -y -i ' . escapeshellarg($file) . ' -f image2 -vframes 1 -ss ' . $snapshottime . ' ' . escapeshellarg($target);
+        $output = run_command($cmd);
+
+        resource_log(RESOURCE_LOG_APPEND_PREVIOUS,LOG_CODE_TRANSFORMED,'','','',$cmd . ":\n" . $output);
+        debug("FFMPEG-VIDEO: Get snapshot: {$cmd}", RESOURCE_LOG_APPEND_PREVIOUS);
+        }
+
+    if (file_exists($target)) 
+        {
+        $newfile=$target;
+        debug('FFMPEG-VIDEO: $newfile = ' . $newfile,RESOURCE_LOG_APPEND_PREVIOUS);
+       
+
+        if ($ffmpeg_preview && ($extension!=$ffmpeg_preview_extension || $ffmpeg_preview_force) )
+            {
+            	debug('FFMPEG-VIDEO: Before running the actual preview command...',RESOURCE_LOG_APPEND_PREVIOUS);
+            	if ($ffmpeg_preview_async && isset($php_path) && file_exists($php_path . "/php"))
+                	{
+                		debug('FFMPEG-VIDEO: Create preview asynchronously...',RESOURCE_LOG_APPEND_PREVIOUS);
+                	global $scramble_key;
+                	exec($php_path . "/php " . dirname(__FILE__)."/ffmpeg_processing.php " . 
+                		escapeshellarg($scramble_key) . " " . 
+                		escapeshellarg($ref) . " " . 
+                		escapeshellarg($file) . " " . 
+                		escapeshellarg($target) . " " . 
+                		escapeshellarg($previewonly) . " " . 
+				escapeshellarg($snapshottime) . " " .
+                                  	escapeshellarg($alternative) . " " .
+                                   	"> /dev/null 2>&1 &");
+                	}
+            	else 
+                	{
+                		debug('FFMPEG-VIDEO: include ffmpeg_processing.php file...',RESOURCE_LOG_APPEND_PREVIOUS);
+                	include (dirname(__FILE__)."/ffmpeg_processing.php");
+                	}
+            }
+        }
+        debug('FFMPEG-VIDEO: ####################################################################',RESOURCE_LOG_APPEND_PREVIOUS);
+    } 
 
 
 /* ----------------------------------------

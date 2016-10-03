@@ -2,8 +2,8 @@
 if (!hook("renderresultlargethumb")) 
 	{ ?>
 	<!--Resource Panel-->
-	<div class="ResourcePanelShellLarge" id="ResourceShell<?php echo htmlspecialchars($ref)?>">
-		<div class="ResourcePanelLarge  <?php hook("xlthumbsviewpanelstyle");?>">
+	<div class="ResourcePanelShellLarge" id="ResourceShell<?php echo htmlspecialchars($ref)?>"  <?php echo hook('resourcepanelshell_attributes')?>>
+		<div class="ResourcePanelLarge <?php hook('xlthumbsviewpanelstyle'); ?> ResourceType<?php echo $result[$n]['resource_type']; ?>">
     		<?php  
     		if ($resource_type_icons) 
     			{ ?>
@@ -73,7 +73,7 @@ if (!hook("renderresultlargethumb"))
 						}
 					else 
 						{
-						$pre_url=get_resource_path($ref,false,"pre",false,$result[$n]["preview_extension"],-1,1,$use_watermark,$result[$n]["file_modified"]);
+						$pre_url=get_resource_path($ref,false,($retina_mode?"scr":"pre"),false,$result[$n]["preview_extension"],-1,1,$use_watermark,$result[$n]["file_modified"]);
 						if (isset($result[$n]["pre_url"])) {$pre_url=$result[$n]["pre_url"];}
 						?>
 						<a 
@@ -109,7 +109,30 @@ if (!hook("renderresultlargethumb"))
 										class="ImageBorder"
 										alt="<?php echo str_replace(array("\"","'"),"",htmlspecialchars(i18n_get_translated($result[$n]["field".$view_title_field]))); ?>"
 								/>
-								<?php 
+								<?php
+                                // For videos ($ffmpeg_supported_extensions), if we have snapshots set, add code to fetch them from the server
+                                // when user hovers over the preview thumbnail
+                                if(1 < $ffmpeg_snapshot_frames && in_array($result[$n]['file_extension'], $ffmpeg_supported_extensions) && 0 < get_video_snapshots($ref, false, true))
+                                    {
+                                    ?>
+                                    <script>
+                                    jQuery('#ResourceShell<?php echo $ref; ?> .ResourcePanelLarge table tbody tr td a img').mousemove(function(event)
+                                        {
+                                        var x_coord             = event.pageX - jQuery(this).offset().left;
+                                        var video_snapshots     = <?php echo json_encode(get_video_snapshots($ref)); ?>;
+                                        var snapshot_segment_px = Math.ceil(jQuery(this).width() / Object.keys(video_snapshots).length);
+                                        var snapshot_number     = Math.ceil(x_coord / snapshot_segment_px);
+
+                                        jQuery(this).attr('src', video_snapshots[snapshot_number]);
+                                        }
+                                    ).mouseout(function(event)
+		                                {
+		                                jQuery(this).attr('src', "<?php echo $pre_url; ?>");
+		                                }
+		                            );
+                                    </script>
+                                    <?php
+                                    }
 								} 
 							else 
 								{ ?>
@@ -259,6 +282,35 @@ if (!hook("renderresultlargethumb"))
 			?>
 			<div class="ResourcePanelIcons">
 				<?php 
+				if(!hook("xlthumbscheckboxes"))
+					{
+					if ($use_checkboxes_for_selection)
+						{
+						if(!in_array($result[$n]['resource_type'],$collection_block_restypes))	
+							{?>
+							<input 
+								type="checkbox" 
+								id="check<?php echo htmlspecialchars($ref)?>" 
+								class="checkselect" 
+								<?php 
+								if (in_array($ref,$collectionresources))
+									{ ?>
+									checked
+									<?php 
+									} ?> 
+								onclick="if (jQuery('#check<?php echo htmlspecialchars($ref)?>').attr('checked')=='checked'){ AddResourceToCollection(event,<?php echo htmlspecialchars($ref)?>); } else if (jQuery('#check<?php echo htmlspecialchars($ref)?>').attr('checked')!='checked'){ RemoveResourceFromCollection(event,<?php echo htmlspecialchars($ref)?>); }"
+							>
+							&nbsp;
+							<?php 
+							}
+						else
+							{
+							?>
+							<input type="checkbox" style="opacity: 0;">
+							<?php
+							}
+						}
+					} # end hook xlthumbscheckboxes
 				if ($display_resource_id_in_thumbnail && $ref>0) 
 					{ echo htmlspecialchars($ref); } 
 				else 

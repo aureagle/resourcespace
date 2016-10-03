@@ -132,12 +132,12 @@ if (array_key_exists("user",$_COOKIE) || array_key_exists("user",$_GET) || isset
 		$rs_session=get_rs_session_id(true);
 		}
 	}
-	if (!$api){ $user_select_sql="and u.session='$session_hash'"; } else { $user_select_sql="and u.username='$username'"; }
+	if (!$api){ $user_select_sql="u.session='$session_hash'"; } else { $user_select_sql="u.username='$username'"; }
 	if (isset($anonymous_login) && ($username==$anonymous_login)) {$user_select_sql="and u.username='$username'";} # Automatic anonymous login, do not require session hash.
 	hook('provideusercredentials');
 
-    $userdata = sql_query("SELECT u.ref, u.username, g.permissions, g.parent, u.usergroup, u.current_collection, u.last_active, timestampdiff(second, u.last_active, now()) idle_seconds, u.email, u.password, u.fullname, g.search_filter, g.edit_filter, g.ip_restrict ip_restrict_group, g.name groupname, u.ip_restrict ip_restrict_user, u.search_filter_override, resource_defaults, u.password_last_change, g.config_options, g.request_mode, g.derestrict_filter, u.hidden_collections, u.accepted_terms FROM user u, usergroup g WHERE u.usergroup = g.ref {$user_select_sql} AND u.approved = 1 AND (u.account_expires IS NULL OR u.account_expires = '0000-00-00 00:00:00' OR u.account_expires > now())");
-
+    $userdata = validate_user($user_select_sql, true); // validate user and get user details 
+	
     if(0 < count($userdata))
         {
         $valid = true;
@@ -172,7 +172,8 @@ if (array_key_exists("user",$_COOKIE) || array_key_exists("user",$_GET) || isset
 					sql_query("update user set logged_in=0,session='' where ref='$userref'");
 					hook("removeuseridcookie");
 					# Blank cookie / var
-					rs_setcookie("user", "", time() - 3600, "", "", substr($baseurl,0,5)=="https", true);
+					rs_setcookie("user", "", time() - 3600, "", "", substr($baseurl,0,5)=="https", true);					
+					rs_setcookie("user", "", time() - 3600, "/pages", "", substr($baseurl,0,5)=="https", true);
 					unset($username);
 		
 					if (isset($anonymous_login))
@@ -287,7 +288,7 @@ if (!$api){
 	$last_browser="API Client";
 }
 
-// don't update this table if the System is doing it's own operations
+// don't update this table if the System is doing its own operations
 if (!isset($system_login)){
 	sql_query("update user set lang='$language', last_active=now(),logged_in=1,last_ip='" . get_ip() . "',last_browser='" . $last_browser . "' where ref='$userref'",false,-1,true,0);
 }
@@ -323,6 +324,7 @@ else
 			if($results[$n]['page'] == '')
 				{
 				$lang[$results[$n]['name']] = $results[$n]['text'];
+				$customsitetext[$results[$n]['name']] = $results[$n]['text'];
 				} 
 			else
 				{
